@@ -6,7 +6,12 @@ import os
 from datetime import time
 
 # ─── Telegram ────────────────────────────────────────────────
-BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+if not BOT_TOKEN:
+    raise RuntimeError(
+        "TELEGRAM_BOT_TOKEN environment variable is not set. "
+        "Add it in Railway: Service → Variables → TELEGRAM_BOT_TOKEN"
+    )
 
 # ─── Timezone ────────────────────────────────────────────────
 TIMEZONE = "America/New_York"
@@ -27,8 +32,8 @@ WEEKLY_DIGEST_HOUR  = 12    # Noon ET
 SCHEDULE_ANCHOR = "2026-03-30"  # Monday of week-1
 WEEK1_DAYS = [0, 1, 5]         # Mon=0, Tue=1, Sat=5
 WEEK2_DAYS = [6, 2, 3]         # Sun=6, Wed=2, Thu=3
-SHIFT_START = time(12, 0)      # noon
-SHIFT_END   = time(0, 0)       # midnight
+SHIFT_START = time(19, 0)      # 7 PM
+SHIFT_END   = time(7, 0)       # 7 AM
 
 # ─── Database ────────────────────────────────────────────────
 DATABASE_PATH = os.environ.get("DATABASE_PATH", "butler.db")
