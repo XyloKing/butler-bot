@@ -4,6 +4,9 @@ Telegram personal assistant for shift workers.
 Button-first, ADHD-friendly, aggressive reminders.
 """
 import logging
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import time as dt_time
 
 from telegram import Update
@@ -332,11 +335,35 @@ def setup_jobs(app):
 
 
 # ═══════════════════════════════════════════════════════
+# HEALTH CHECK (keeps Railway from killing the process)
+# ═══════════════════════════════════════════════════════
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, *args):
+        pass  # silence health check logs
+
+def _start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    logger.info(f"Health check listening on port {port}")
+    server.serve_forever()
+
+
+# ═══════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════
 
 def main():
     init_db()
+
+    # Start health check server in background (Railway needs a listening port)
+    health_thread = threading.Thread(target=_start_health_server, daemon=True)
+    health_thread.start()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
