@@ -379,11 +379,12 @@ def _start_health_server():
 # ═══════════════════════════════════════════════════════
 
 def main():
-    init_db()
-
-    # Start health check server in background (Railway needs a listening port)
+    # Start health check FIRST so Railway sees us as healthy immediately
     health_thread = threading.Thread(target=_start_health_server, daemon=True)
     health_thread.start()
+    logger.info("Health server started, initializing bot...")
+
+    init_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -401,7 +402,7 @@ def main():
     # Scheduled jobs
     setup_jobs(app)
 
-    logger.info("Butler Bot starting...")
+    logger.info(f"Butler Bot {BOT_VERSION} starting...")
     app.run_polling(
         drop_pending_updates=True,
         allowed_updates=["message", "callback_query"],
