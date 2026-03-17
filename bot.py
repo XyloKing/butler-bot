@@ -52,11 +52,11 @@ logger = logging.getLogger(__name__)
 # COMMAND HANDLERS (minimal — just /start and /menu)
 # ═══════════════════════════════════════════════════════
 
-BOT_VERSION = "2.0.0-appts-overhaul"
+BOT_VERSION = "2.0.1-nixpacks"
 
 async def _version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug: show which version is actually running."""
-    await update.message.reply_text(f"🔧 Butler Bot {BOT_VERSION}\nBuild: 2026-03-17")
+    await update.message.reply_text(f"🔧 Butler Bot {BOT_VERSION}\nBuild: 2026-03-17T0620Z\nDeploy: nixpacks")
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
