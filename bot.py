@@ -385,28 +385,39 @@ def main():
     logger.info("Health server started, initializing bot...")
 
     # Force-kill any other polling session before we start.
-    # This prevents 409 Conflict when Railway runs old + new instances briefly.
+    # Railway briefly runs old + new instances during deploys.
+    # We must wait for the old one to fully die before polling.
     import httpx
-    logger.info("Clearing old polling sessions...")
-    try:
-        httpx.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
-            params={"drop_pending_updates": True},
-            timeout=10,
-        )
-        # Make a getUpdates call with short timeout to bump the offset
-        # and terminate any lingering long-poll from the old instance
-        httpx.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
-            params={"offset": -1, "limit": 1, "timeout": 0},
-            timeout=10,
-        )
-        logger.info("Old sessions cleared.")
-    except Exception as e:
-        logger.warning(f"Could not clear old sessions: {e}")
-
     import time
-    time.sleep(2)  # Give old instance time to die
+
+    logger.info("Waiting for old instance to release polling...")
+    for attempt in range(12):  # Try for up to 60 seconds
+        try:
+            httpx.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
+                params={"drop_pending_updates": True},
+                timeout=10,
+            )
+            # Try a getUpdates — if it succeeds without 409, we own the session
+            resp = httpx.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
+                params={"offset": -1, "limit": 1, "timeout": 1},
+                timeout=15,
+            )
+            if resp.status_code == 200 and resp.json().get("ok"):
+                logger.info(f"Polling session acquired on attempt {attempt + 1}.")
+                break
+            elif resp.status_code == 409:
+                logger.info(f"Attempt {attempt + 1}: old instance still polling, waiting 5s...")
+                time.sleep(5)
+            else:
+                logger.warning(f"Unexpected response: {resp.status_code}")
+                time.sleep(5)
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1} error: {e}")
+            time.sleep(5)
+    else:
+        logger.warning("Could not acquire polling after 60s — starting anyway.")
 
     init_db()
 
