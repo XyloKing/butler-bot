@@ -52,6 +52,13 @@ logger = logging.getLogger(__name__)
 # COMMAND HANDLERS (minimal — just /start and /menu)
 # ═══════════════════════════════════════════════════════
 
+BOT_VERSION = "2.0.0-appts-overhaul"
+
+async def _version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Debug: show which version is actually running."""
+    await update.message.reply_text(f"🔧 Butler Bot {BOT_VERSION}\nBuild: 2026-03-17")
+
+
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """The /menu command — main entry point."""
     from database import ensure_user
@@ -380,9 +387,10 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Commands (just two!)
+    # Commands
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("menu", menu_command))
+    app.add_handler(CommandHandler("version", _version_command))
 
     # Button presses — single router handles everything
     app.add_handler(CallbackQueryHandler(button_router))
