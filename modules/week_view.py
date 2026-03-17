@@ -21,11 +21,17 @@ async def week_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = parts[1] if len(parts) > 1 else "view"
 
     if action == "view":
-        await _show_week(query, chat_id, offset=0)
+        # week:view or week:view:offset
+        offset = int(parts[2]) if len(parts) > 2 else 0
+        await _show_week(query, chat_id, offset=offset)
     elif action == "next":
-        await _show_week(query, chat_id, offset=7)
+        # week:next:current_offset — advance by 7
+        current = int(parts[2]) if len(parts) > 2 else 0
+        await _show_week(query, chat_id, offset=current + 7)
     elif action == "prev":
-        await _show_week(query, chat_id, offset=-7)
+        # week:prev:current_offset — go back by 7
+        current = int(parts[2]) if len(parts) > 2 else 0
+        await _show_week(query, chat_id, offset=current - 7)
 
 
 async def _show_week(query, chat_id, offset=0):
@@ -148,12 +154,16 @@ async def _show_week(query, chat_id, offset=0):
 
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     nav_row = [
-        InlineKeyboardButton("◀ Prev Week", callback_data="week:prev"),
-        InlineKeyboardButton("▶ Next Week", callback_data="week:next"),
+        InlineKeyboardButton("◀ Prev Week", callback_data=f"week:prev:{offset}"),
+        InlineKeyboardButton("▶ Next Week", callback_data=f"week:next:{offset}"),
     ]
-    kb = InlineKeyboardMarkup([
-        nav_row,
-        [InlineKeyboardButton("⬅️ Menu", callback_data="menu:main")],
-    ])
+    today_row = []
+    if offset != 0:
+        today_row = [InlineKeyboardButton("📍 This Week", callback_data="week:view:0")]
+    rows = [nav_row]
+    if today_row:
+        rows.append(today_row)
+    rows.append([InlineKeyboardButton("⬅️ Menu", callback_data="menu:main")])
+    kb = InlineKeyboardMarkup(rows)
 
     await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")

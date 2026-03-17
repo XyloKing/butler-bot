@@ -117,8 +117,9 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif action == "editfield":
-        field = parts[2] if len(parts) > 2 else "name"
-        pid = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else item_id
+        # callback_data = partners:editfield:{id}:{field}
+        pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else item_id
+        field = parts[3] if len(parts) > 3 else "name"
         from modules.field_editor import start_field_edit
         await start_field_edit(update, context, "partners", pid, field)
 
