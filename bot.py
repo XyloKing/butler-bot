@@ -116,8 +116,10 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error in {prefix} handler: {e}", exc_info=True)
             try:
+                # Show the actual error briefly to help debug
+                err_short = str(e)[:100]
                 await query.message.reply_text(
-                    f"Something went wrong. Tap /menu to try again."
+                    f"Something went wrong: {err_short}\n\nTap /menu to try again."
                 )
             except Exception:
                 pass
