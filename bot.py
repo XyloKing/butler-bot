@@ -384,6 +384,30 @@ def main():
     health_thread.start()
     logger.info("Health server started, initializing bot...")
 
+    # Force-kill any other polling session before we start.
+    # This prevents 409 Conflict when Railway runs old + new instances briefly.
+    import httpx
+    logger.info("Clearing old polling sessions...")
+    try:
+        httpx.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
+            params={"drop_pending_updates": True},
+            timeout=10,
+        )
+        # Make a getUpdates call with short timeout to bump the offset
+        # and terminate any lingering long-poll from the old instance
+        httpx.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
+            params={"offset": -1, "limit": 1, "timeout": 0},
+            timeout=10,
+        )
+        logger.info("Old sessions cleared.")
+    except Exception as e:
+        logger.warning(f"Could not clear old sessions: {e}")
+
+    import time
+    time.sleep(2)  # Give old instance time to die
+
     init_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
