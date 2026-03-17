@@ -796,25 +796,33 @@ async def test_appointments_crud():
     update, ctx = await run_callback("appts:view", ctx)
     check("appts:view responds", update.callback_query.edit_message_text.called)
 
-    # Add appointment - full flow
+    # Add appointment - full flow (Title → Category → Date → Time → Notes → Priority → Save)
     update, ctx = await run_callback("appts:add", ctx)
     check("appts:add sets awaiting title", ctx.user_data.get("awaiting") == "appt_title")
 
-    # Step 1: Title
+    # Step 1: Title → shows category picker
     await run_text("Dentist Cleaning", ctx)
-    check("after title, awaiting date", ctx.user_data.get("awaiting") == "appt_date")
+    check("after title, awaiting None (category picker)", ctx.user_data.get("awaiting") is None)
 
-    # Step 2: Date
+    # Step 2: Category → asks for date
+    update, ctx = await run_callback("appts:category:medical", ctx)
+    check("after category, awaiting date", ctx.user_data.get("awaiting") == "appt_date")
+
+    # Step 3: Date
     await run_text("April 15 2026", ctx)
     check("date saved in user_data", ctx.user_data.get("appt_date") == "2026-04-15")
     check("after date, awaiting time", ctx.user_data.get("awaiting") == "appt_time")
 
-    # Step 3: Time
+    # Step 4: Time
     await run_text("2pm", ctx)
     check("after time, awaiting notes", ctx.user_data.get("awaiting") == "appt_notes")
 
-    # Step 4: Notes
+    # Step 5: Notes → shows priority picker
     await run_text("Dr. Smith, bring insurance card", ctx)
+    check("after notes, awaiting None (priority picker)", ctx.user_data.get("awaiting") is None)
+
+    # Step 6: Accept default priority → saves
+    update, ctx = await run_callback("appts:priority_ok", ctx)
 
     with db() as conn:
         appt = conn.execute("SELECT * FROM appointments WHERE chat_id = ? AND title = 'Dentist Cleaning'", (CHAT_ID,)).fetchone()
@@ -883,6 +891,8 @@ async def test_appointments_crud():
     logger.info("  Testing skip flows...")
     update, ctx = await run_callback("appts:add", ctx)
     await run_text("Railway Trial Ends", ctx)
+    # Pick category
+    update, ctx = await run_callback("appts:category:financial", ctx)
     await run_text("March 29", ctx)
 
     # Skip time via button
@@ -890,15 +900,21 @@ async def test_appointments_crud():
     ctx.user_data["awaiting"] = "appt_time"  # Ensure state is correct
     ctx.user_data["appt_title"] = "Railway Trial Ends"
     ctx.user_data["appt_date"] = "2026-03-29"
+    ctx.user_data["appt_category"] = "financial"
     await appts_callback(update, ctx)
     check("skip_time sets awaiting notes", ctx.user_data.get("awaiting") == "appt_notes")
 
-    # Skip notes via button
+    # Skip notes via button → goes to priority picker
     update2 = make_update(data="appts:skip_notes")
     ctx.user_data["appt_title"] = "Railway Trial Ends"
     ctx.user_data["appt_date"] = "2026-03-29"
     ctx.user_data["appt_time"] = None
+    ctx.user_data["appt_category"] = "financial"
     await appts_callback(update2, ctx)
+    check("skip_notes shows priority picker", ctx.user_data.get("awaiting") is None)
+
+    # Accept default priority → saves
+    update3, ctx = await run_callback("appts:priority_ok", ctx)
 
     with db() as conn:
         a = conn.execute("SELECT * FROM appointments WHERE chat_id = ? AND title = 'Railway Trial Ends'", (CHAT_ID,)).fetchone()

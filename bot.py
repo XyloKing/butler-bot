@@ -38,7 +38,7 @@ from modules.settings_handlers import handle_settings_text, handle_settings_day_
 from modules.field_editor import handle_field_edit_text
 from modules.scheduler import (
     daily_reset, afternoon_digest, evening_checkin,
-    med_nag, bill_nag, weekly_digest,
+    med_nag, bill_nag, weekly_digest, appointment_reminder_check,
 )
 
 logging.basicConfig(
@@ -333,6 +333,14 @@ def setup_jobs(app):
         days=(WEEKLY_DIGEST_DAY,),
         name="weekly_digest",
     )
+
+    # Appointment reminders — hourly during notification window (5 AM - 5 PM ET)
+    for hour in range(5, 17):
+        jq.run_daily(
+            appointment_reminder_check,
+            time=dt_time(hour, 15, tzinfo=tz),
+            name=f"appt_remind_{hour}",
+        )
 
     logger.info("Scheduled jobs registered")
 

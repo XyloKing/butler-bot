@@ -195,14 +195,27 @@ async def _send_detail_view(update, context, module, item_id, chat_id):
         if appt:
             from helpers import friendly_date as _fd, urgency_emoji as _ue, days_until as _du
             from datetime import date as _date
+            from modules.appointments import CATEGORIES, PRIORITY_LABELS
             event_d = _date.fromisoformat(appt["event_date"])
             delta = _du(event_d)
             urg = _ue(delta)
             time_str = f"\nTime: {appt['event_time']}" if appt["event_time"] else ""
+            try:
+                cat = appt["category"] or "other"
+            except (IndexError, KeyError):
+                cat = "other"
+            try:
+                priority = appt["priority"] if appt["priority"] is not None else 2
+            except (IndexError, KeyError):
+                priority = 2
+            cat_label = CATEGORIES.get(cat, cat)
+            prio_label = PRIORITY_LABELS.get(priority, str(priority))
             text = (
                 f"📅 {appt['title']}\n"
+                f"Category: {cat_label}\n"
                 f"Date: {urg} {appt['event_date']} — {_fd(event_d)}"
-                f"{time_str}"
+                f"{time_str}\n"
+                f"Priority: {prio_label}"
             )
             await update.message.reply_text(
                 text,

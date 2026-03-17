@@ -214,7 +214,28 @@ def init_db():
     """Create all tables if they don't exist."""
     with db() as conn:
         conn.executescript(SCHEMA)
+
+    # Migration: add new appointment columns (safe — ignores if already exist)
+    _migrate_appointments()
     print("[DB] Tables initialized")
+
+
+def _migrate_appointments():
+    """Add category, priority, reminder_level columns to appointments table."""
+    migrations = [
+        "ALTER TABLE appointments ADD COLUMN category TEXT DEFAULT 'other'",
+        "ALTER TABLE appointments ADD COLUMN priority INTEGER DEFAULT 2",
+        "ALTER TABLE appointments ADD COLUMN reminder_level TEXT DEFAULT 'smart'",
+    ]
+    with db() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" in str(e).lower():
+                    pass  # Already migrated
+                else:
+                    raise
 
 
 def ensure_user(chat_id: int, name: str = None):

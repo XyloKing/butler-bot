@@ -184,7 +184,7 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("")
 
     # ── Appointments ─────────────────────────────────
-    from modules.appointments import get_upcoming_appointments
+    from modules.appointments import get_upcoming_appointments, CATEGORY_EMOJI
     upcoming_appts = get_upcoming_appointments(chat_id, days_ahead=7)
     if upcoming_appts:
         lines.append("📅 APPOINTMENTS:")
@@ -193,7 +193,12 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
             delta = days_until(event_date)
             urg = urgency_emoji(delta)
             time_str = f" at {a['event_time']}" if a.get("event_time") else ""
-            lines.append(f"  {urg} {a['title']}{time_str} — {friendly_date(event_date)}")
+            try:
+                cat = a["category"] or "other"
+            except (IndexError, KeyError):
+                cat = "other"
+            cat_emoji = CATEGORY_EMOJI.get(cat, "📅")
+            lines.append(f"  {urg} {cat_emoji} {a['title']}{time_str} — {friendly_date(event_date)}")
         lines.append("")
 
     # ── Notes for today ──────────────────────────────

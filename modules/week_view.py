@@ -144,7 +144,14 @@ async def _show_week(query, chat_id, offset=0):
         for a in appts:
             adate = date.fromisoformat(a["event_date"])
             time_str = f" {a['event_time']}" if a["event_time"] else ""
-            events.setdefault(adate, []).append(f"📅 {a['title']}{time_str}")
+            # Show category emoji if available
+            try:
+                cat = a["category"] or "other"
+            except (IndexError, KeyError):
+                cat = "other"
+            from modules.appointments import CATEGORY_EMOJI
+            cat_emoji = CATEGORY_EMOJI.get(cat, "📅")
+            events.setdefault(adate, []).append(f"{cat_emoji} {a['title']}{time_str}")
 
     # Build calendar
     cal = ascii_week_calendar(start, work_days, events)

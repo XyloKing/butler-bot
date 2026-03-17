@@ -1,12 +1,14 @@
 """
 Automated reminder engine.
 Handles: daily digests, med nags, bill nags, payday alerts,
-car/credential countdowns, daily taken_today resets.
+car/credential countdowns, daily taken_today resets,
+shift-aware appointment reminders.
 """
 import json
 import logging
 from datetime import date, time, timedelta, datetime
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
@@ -14,6 +16,7 @@ from helpers import (
     now, today, days_until, friendly_date, urgency_emoji, format_money,
     is_payday, next_payday, is_work_day,
 )
+
 from keyboards import (
     main_menu_kb, today_actions_kb, followup_kb, meds_list_kb,
 )
@@ -181,7 +184,7 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
             lines.append(f"{urg} 🎓 {c['name']} expires {friendly_date(exp)}")
 
     # Appointments within 7 days
-    from modules.appointments import get_upcoming_appointments
+    from modules.appointments import get_upcoming_appointments, CATEGORY_EMOJI
     upcoming_appts = get_upcoming_appointments(chat_id, days_ahead=7)
     if upcoming_appts:
         lines.append("")
@@ -192,7 +195,12 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
             delta = days_until(event_date)
             urg = urgency_emoji(delta)
             time_str = f" at {a['event_time']}" if a.get("event_time") else ""
-            lines.append(f"  {urg} {a['title']}{time_str} — {friendly_date(event_date)}")
+            try:
+                cat = a["category"] or "other"
+            except (IndexError, KeyError):
+                cat = "other"
+            cat_emoji = CATEGORY_EMOJI.get(cat, "📅")
+            lines.append(f"  {urg} {cat_emoji} {a['title']}{time_str} — {friendly_date(event_date)}")
 
     # Partner dates within 7 days
     with db() as conn:
@@ -383,3 +391,223 @@ async def weekly_digest(context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=main_menu_kb())
         except Exception as e:
             logger.error(f"Weekly digest failed for {chat_id}: {e}")
+
+
+# ═══════════════════════════════════════════════════════
+# APPOINTMENT REMINDER CHECK (hourly during notification window)
+# ═══════════════════════════════════════════════════════
+
+async def appointment_reminder_check(context: ContextTypes.DEFAULT_TYPE):
+    """Check all appointments and fire reminders based on priority + shift schedule."""
+    from modules.appointments import CATEGORY_EMOJI, PRIORITY_REMINDERS, CATEGORIES
+
+    logger.info("Running appointment reminder check")
+    d = today()
+
+    with db() as conn:
+        users = conn.execute("SELECT * FROM users WHERE onboarded = 1").fetchall()
+
+    for user in users:
+        chat_id = user["chat_id"]
+        try:
+            await _check_user_appointments(context, chat_id, d)
+        except Exception as e:
+            logger.error(f"Appointment reminder failed for {chat_id}: {e}")
+
+
+async def _check_user_appointments(context, chat_id, d):
+    """Check appointments for one user and send reminders as needed."""
+    from modules.appointments import CATEGORY_EMOJI, PRIORITY_REMINDERS, CATEGORIES
+
+    # Get shift info for tonight
+    working_tonight = False
+    with db() as conn:
+        shift = conn.execute(
+            "SELECT * FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+            (chat_id,)
+        ).fetchone()
+
+    if shift and shift["week1_days"]:
+        w1 = json.loads(shift["week1_days"])
+        w2 = json.loads(shift["week2_days"] or "[]") or w1
+        try:
+            anchor = shift["anchor_date"] or "2026-03-30"
+        except (IndexError, KeyError):
+            anchor = "2026-03-30"
+        working_tonight = is_work_day(d, anchor, w1, w2)
+
+    # Get all undone appointments with reminders enabled
+    with db() as conn:
+        appts = conn.execute(
+            "SELECT * FROM appointments WHERE chat_id = ? AND done = 0",
+            (chat_id,)
+        ).fetchall()
+
+    for appt in appts:
+        try:
+            priority = appt["priority"] if appt["priority"] is not None else 2
+        except (IndexError, KeyError):
+            priority = 2
+
+        if priority == 0:
+            continue  # No reminders for priority 0
+
+        try:
+            reminder_level = appt["reminder_level"] or "smart"
+        except (IndexError, KeyError):
+            reminder_level = "smart"
+
+        if reminder_level == "none":
+            continue
+
+        event_date = date.fromisoformat(appt["event_date"])
+        days_away = (event_date - d).days
+
+        # Determine which reminder thresholds apply for this priority
+        thresholds = PRIORITY_REMINDERS.get(priority, [1, 0])
+
+        for threshold in thresholds:
+            if days_away == threshold:
+                # Check if we already sent this reminder today
+                reminder_key = f"appt_{threshold}d"
+                if _already_sent(chat_id, appt["id"], reminder_key, d):
+                    continue
+
+                # Check if snoozed recently (within last 2 hours)
+                if _recently_snoozed(chat_id, appt["id"]):
+                    continue
+
+                # Send reminder
+                await _send_appointment_reminder(
+                    context, chat_id, appt, days_away, working_tonight
+                )
+                # Log the reminder
+                _log_reminder(chat_id, appt["id"], reminder_key)
+
+        # Follow-up: if priority >= 3, event_time has passed, and not done
+        if priority >= 3 and days_away == 0 and appt["event_time"]:
+            current_hour = now().hour
+            try:
+                event_hour = int(appt["event_time"].split(":")[0])
+                if current_hour > event_hour:
+                    followup_key = "appt_followup"
+                    if not _already_sent(chat_id, appt["id"], followup_key, d):
+                        if not _recently_snoozed(chat_id, appt["id"]):
+                            await _send_followup_reminder(context, chat_id, appt)
+                            _log_reminder(chat_id, appt["id"], followup_key)
+            except (ValueError, TypeError):
+                pass
+        # Follow-up for day-of with no time set (fire after noon)
+        elif priority >= 3 and days_away == 0 and not appt["event_time"]:
+            if now().hour >= 12:
+                followup_key = "appt_followup"
+                if not _already_sent(chat_id, appt["id"], followup_key, d):
+                    if not _recently_snoozed(chat_id, appt["id"]):
+                        await _send_followup_reminder(context, chat_id, appt)
+                        _log_reminder(chat_id, appt["id"], followup_key)
+
+
+def _already_sent(chat_id, appt_id, reminder_key, d) -> bool:
+    """Check if a specific reminder was already sent today.
+    Uses UTC date from sent_at (SQLite datetime('now') is UTC)."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM reminder_log WHERE chat_id = ? AND category = ? "
+            "AND ref_id = ? AND date(sent_at) = date('now')",
+            (chat_id, reminder_key, appt_id),
+        ).fetchone()
+    return row is not None
+
+
+def _recently_snoozed(chat_id, appt_id) -> bool:
+    """Check if the user snoozed this appointment in the last 2 hours."""
+    cutoff = (now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM reminder_log WHERE chat_id = ? AND category = 'appt_snooze' "
+            "AND ref_id = ? AND sent_at >= ?",
+            (chat_id, appt_id, cutoff),
+        ).fetchone()
+    return row is not None
+
+
+def _log_reminder(chat_id, appt_id, reminder_key):
+    """Log that a reminder was sent."""
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO reminder_log (chat_id, category, ref_id) VALUES (?, ?, ?)",
+            (chat_id, reminder_key, appt_id),
+        )
+
+
+async def _send_appointment_reminder(context, chat_id, appt, days_away, working_tonight):
+    """Send an appointment reminder message."""
+    from modules.appointments import CATEGORY_EMOJI, CATEGORIES
+
+    try:
+        cat = appt["category"] or "other"
+    except (IndexError, KeyError):
+        cat = "other"
+    cat_emoji = CATEGORY_EMOJI.get(cat, "📋")
+    cat_label = CATEGORIES.get(cat, cat)
+
+    event_date = date.fromisoformat(appt["event_date"])
+
+    if days_away == 0:
+        header = "🚨 TODAY"
+        date_label = f"TODAY ({event_date.strftime('%b %d')})"
+    elif days_away == 1:
+        header = "🚨 APPOINTMENT REMINDER"
+        date_label = f"tomorrow ({event_date.strftime('%b %d')})"
+    else:
+        header = "📅 APPOINTMENT REMINDER"
+        date_label = f"in {days_away} days ({event_date.strftime('%b %d')})"
+
+    lines = [
+        header,
+        "",
+        f"📅 {appt['title']}",
+        f"   {cat_emoji} {cat_label.split(' ', 1)[-1] if ' ' in cat_label else cat_label} — {date_label}",
+    ]
+
+    if working_tonight and days_away <= 1:
+        lines.append("")
+        lines.append("⚠️ You're working tonight. Handle this before your shift or set time tomorrow.")
+
+    text = "\n".join(lines)
+
+    if days_away == 0:
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Done", callback_data=f"appts:remind_done:{appt['id']}"),
+                InlineKeyboardButton("⏰ Snooze 2hrs", callback_data=f"appts:snooze2h:{appt['id']}"),
+            ],
+        ])
+    else:
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Done", callback_data=f"appts:remind_done:{appt['id']}"),
+                InlineKeyboardButton("⏰ Remind Later", callback_data=f"appts:remind_later:{appt['id']}"),
+            ],
+            [
+                InlineKeyboardButton("📅 View Details", callback_data=f"appts:detail:{appt['id']}"),
+            ],
+        ])
+
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)
+
+
+async def _send_followup_reminder(context, chat_id, appt):
+    """Send a follow-up 'did you handle it?' reminder."""
+    text = (
+        f"🚨 Did you handle this?\n\n"
+        f"📅 {appt['title']}\n"
+        f"   Scheduled for today"
+    )
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Done", callback_data=f"appts:remind_done:{appt['id']}"),
+            InlineKeyboardButton("⏰ Snooze 2hrs", callback_data=f"appts:snooze2h:{appt['id']}"),
+        ],
+    ])
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)

@@ -308,16 +308,30 @@ def notes_list_kb(notes: list[dict]) -> InlineKeyboardMarkup:
 # ═══════════════════════════════════════════════════════
 
 def appts_list_kb(appts: list[dict]) -> InlineKeyboardMarkup:
-    """Show each appointment as a button."""
+    """Show each appointment as a button with category emoji + priority indicator."""
     rows = []
     from helpers import days_until, urgency_emoji
+    from modules.appointments import CATEGORY_EMOJI, PRIORITY_LABELS
     import datetime as _dt
+
     for a in appts:
         done = "✅ " if a["done"] else ""
         d = _dt.date.fromisoformat(a["event_date"])
         urg = urgency_emoji(days_until(d))
-        time_str = f" {a['event_time']}" if a.get("event_time") else ""
-        label = f"{done}{urg} {a['title']} — {a['event_date']}{time_str}"
+        # Get category emoji (safe for old rows without column)
+        try:
+            cat = a["category"] or "other"
+        except (IndexError, KeyError):
+            cat = "other"
+        cat_emoji = CATEGORY_EMOJI.get(cat, "📋")
+        # Get priority indicator
+        try:
+            prio = a["priority"] if a["priority"] is not None else 2
+        except (IndexError, KeyError):
+            prio = 2
+        prio_short = {0: "🔕", 1: "🔔", 2: "🔔🔔", 3: "🔔🔔🔔", 4: "🚨"}.get(prio, "")
+
+        label = f"{done}{cat_emoji}{prio_short} {a['title']} — {a['event_date']}"
         # Telegram limits callback data to 64 bytes, label is just display
         rows.append([InlineKeyboardButton(label[:60], callback_data=f"appts:detail:{a['id']}")])
 
@@ -339,6 +353,10 @@ def appt_detail_kb(appt_id: int, is_done: bool) -> InlineKeyboardMarkup:
     rows.append([
         InlineKeyboardButton("⏰ Time",  callback_data=f"appts:editfield:{appt_id}:event_time"),
         InlineKeyboardButton("📒 Notes", callback_data=f"appts:editfield:{appt_id}:notes"),
+    ])
+    rows.append([
+        InlineKeyboardButton("📂 Category", callback_data=f"appts:editcategory:{appt_id}"),
+        InlineKeyboardButton("⚡ Priority", callback_data=f"appts:editpriority:{appt_id}"),
     ])
     rows.append([
         InlineKeyboardButton("🗑 Delete", callback_data=f"appts:delete:{appt_id}"),
