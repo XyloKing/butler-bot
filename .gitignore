@@ -6,3 +6,5 @@ butler.db
 nohup.out
 .env
 skills/
+test_appts_thorough.db
+test_butler.db
