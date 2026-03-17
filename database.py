@@ -140,6 +140,20 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 
 -- ═══════════════════════════════════════════════════════
+-- APPOINTMENTS / EVENTS
+-- ═══════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS appointments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
+    title       TEXT    NOT NULL,
+    event_date  TEXT    NOT NULL,               -- ISO date (YYYY-MM-DD)
+    event_time  TEXT,                           -- HH:MM or NULL
+    done        INTEGER DEFAULT 0,
+    notes       TEXT,
+    created_at  TEXT    DEFAULT (datetime('now'))
+);
+
+-- ═══════════════════════════════════════════════════════
 -- REMINDER LOG (nag tracking)
 -- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS reminder_log (

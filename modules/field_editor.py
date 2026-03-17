@@ -35,15 +35,21 @@ FIELD_PROMPTS = {
     "refill_date": "Next refill date? (YYYY-MM-DD or 'skip')",
     # Notes
     "content": "New content?",
+    # Appointments
+    "title": "New title?",
+    "event_date": "New date? (YYYY-MM-DD or 'March 29')",
+    "event_time": "New time? (e.g. '2pm', '14:00', or 'skip' to clear)",
 }
 
 # Fields that need numeric parsing
 NUMERIC_FIELDS = {"amount", "due_day", "mileage", "ceu_required", "ceu_completed", "target_dates_per_month"}
+# Fields that need time parsing
+TIME_FIELDS = {"event_time"}
 # Fields that need date parsing
-DATE_FIELDS = {"due_date", "expiry_date", "refill_date"}
+DATE_FIELDS = {"due_date", "expiry_date", "refill_date", "event_date"}
 # Fields where 'skip' means set to NULL
 NULLABLE_FIELDS = {"amount", "due_day", "mileage", "dosage", "refill_date", "account_user",
-                   "credential_num", "state", "issuing_body", "renewal_url"}
+                   "credential_num", "state", "issuing_body", "renewal_url", "event_time", "notes"}
 
 # Table mapping for each module prefix
 TABLE_MAP = {
@@ -53,6 +59,7 @@ TABLE_MAP = {
     "partners": "partners",
     "meds": "medications",
     "notes": "notes",
+    "appts": "appointments",
 }
 
 
@@ -96,6 +103,9 @@ async def handle_field_edit_text(update: Update, context: ContextTypes.DEFAULT_T
         except ValueError:
             await update.message.reply_text(f"Need a number for {field}. Try again from the item.")
             return True
+    elif field in TIME_FIELDS:
+        from modules.appointments import _parse_time_loosely
+        value = _parse_time_loosely(text)
     elif field in DATE_FIELDS:
         from modules.onboarding import _parse_date_loosely
         value = _parse_date_loosely(text)
@@ -176,4 +186,25 @@ async def _send_detail_view(update, context, module, item_id, chat_id):
             await update.message.reply_text(
                 f"💊 {med['name']} {med['dosage'] or ''}",
                 reply_markup=med_detail_kb(item_id, med["taken_today"]),
+            )
+
+    elif module == "appts":
+        from keyboards import appt_detail_kb
+        with db() as conn:
+            appt = conn.execute("SELECT * FROM appointments WHERE id = ?", (item_id,)).fetchone()
+        if appt:
+            from helpers import friendly_date as _fd, urgency_emoji as _ue, days_until as _du
+            from datetime import date as _date
+            event_d = _date.fromisoformat(appt["event_date"])
+            delta = _du(event_d)
+            urg = _ue(delta)
+            time_str = f"\nTime: {appt['event_time']}" if appt["event_time"] else ""
+            text = (
+                f"📅 {appt['title']}\n"
+                f"Date: {urg} {appt['event_date']} — {_fd(event_d)}"
+                f"{time_str}"
+            )
+            await update.message.reply_text(
+                text,
+                reply_markup=appt_detail_kb(item_id, appt["done"]),
             )

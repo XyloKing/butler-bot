@@ -183,6 +183,19 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"  {emoji} {pd_row['partner_name']} — {label} {friendly_date(d + timedelta(days=delta))}")
         lines.append("")
 
+    # ── Appointments ─────────────────────────────────
+    from modules.appointments import get_upcoming_appointments
+    upcoming_appts = get_upcoming_appointments(chat_id, days_ahead=7)
+    if upcoming_appts:
+        lines.append("📅 APPOINTMENTS:")
+        for a in upcoming_appts:
+            event_date = date.fromisoformat(a["event_date"])
+            delta = days_until(event_date)
+            urg = urgency_emoji(delta)
+            time_str = f" at {a['event_time']}" if a.get("event_time") else ""
+            lines.append(f"  {urg} {a['title']}{time_str} — {friendly_date(event_date)}")
+        lines.append("")
+
     # ── Notes for today ──────────────────────────────
     with db() as conn:
         today_notes = conn.execute(

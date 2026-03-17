@@ -33,6 +33,7 @@ from modules.car import car_callback, handle_car_text
 from modules.credentials import creds_callback, handle_cred_text
 from modules.meds import meds_callback, handle_med_text
 from modules.notes import notes_callback, handle_note_text
+from modules.appointments import appts_callback, handle_appt_text
 from modules.settings_handlers import handle_settings_text, handle_settings_day_select
 from modules.field_editor import handle_field_edit_text
 from modules.scheduler import (
@@ -102,6 +103,7 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "creds":    creds_callback,
         "meds":     meds_callback,
         "notes":    notes_callback,
+        "appts":    appts_callback,
         "capture":  handle_capture,
         "settings": handle_settings,
         "onboard":  onboard_callback,
@@ -148,11 +150,11 @@ async def handle_capture(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=capture_menu_kb(),
         )
     elif action == "appointment":
-        context.user_data["awaiting"] = "note_content"
-        context.user_data["note_category"] = "appointment"
-        context.user_data["note_ref_id"] = None
+        # Legacy route — redirect to proper appointments module
+        context.user_data["awaiting"] = "appt_title"
         await query.edit_message_text(
-            "📅 Describe the appointment:\n(e.g. 'Dentist March 20 at 2pm')"
+            "📅 What's the appointment or event?\n"
+            "(e.g. 'Dentist', 'Railway trial ends', 'Dinner with Sam')"
         )
 
 
@@ -272,6 +274,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Try each module's text handler in order
     handlers = [
         handle_field_edit_text,   # Universal field editor (highest priority)
+        handle_appt_text,         # Appointment multi-step flow
         handle_onboard_text,
         handle_settings_text,
         handle_bill_text,

@@ -180,6 +180,20 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
             urg = urgency_emoji(delta)
             lines.append(f"{urg} 🎓 {c['name']} expires {friendly_date(exp)}")
 
+    # Appointments within 7 days
+    from modules.appointments import get_upcoming_appointments
+    upcoming_appts = get_upcoming_appointments(chat_id, days_ahead=7)
+    if upcoming_appts:
+        lines.append("")
+        lines.append("📅 UPCOMING APPOINTMENTS:")
+        for a in upcoming_appts:
+            from datetime import date as _date
+            event_date = _date.fromisoformat(a["event_date"])
+            delta = days_until(event_date)
+            urg = urgency_emoji(delta)
+            time_str = f" at {a['event_time']}" if a.get("event_time") else ""
+            lines.append(f"  {urg} {a['title']}{time_str} — {friendly_date(event_date)}")
+
     # Partner dates within 7 days
     with db() as conn:
         pdates = conn.execute("""
@@ -353,6 +367,16 @@ async def weekly_digest(context: ContextTypes.DEFAULT_TYPE):
                 lines.append("\n📋 Coming up:")
                 for item in approaching:
                     lines.append(f"  {item}")
+
+            # Appointments this week
+            from modules.appointments import get_upcoming_appointments as _get_appts
+            week_appts = _get_appts(chat_id, days_ahead=7)
+            if week_appts:
+                lines.append("\n📅 Appointments this week:")
+                for a in week_appts:
+                    event_date = date.fromisoformat(a["event_date"])
+                    time_str = f" at {a['event_time']}" if a.get("event_time") else ""
+                    lines.append(f"  • {a['title']}{time_str} — {friendly_date(event_date)}")
 
             lines.append("\nHave a good week. 🫡")
             text = "\n".join(lines)

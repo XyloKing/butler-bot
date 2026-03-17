@@ -28,6 +28,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💊 Meds",           callback_data="meds:view"),
             InlineKeyboardButton("📒 Notes",          callback_data="notes:view"),
         ],
+        [InlineKeyboardButton("📅 Appointments",     callback_data="appts:view")],
         [InlineKeyboardButton("➕ Capture / Inbox",   callback_data="capture:start")],
         [InlineKeyboardButton("⚙️ Settings",         callback_data="settings:view")],
     ])
@@ -303,6 +304,50 @@ def notes_list_kb(notes: list[dict]) -> InlineKeyboardMarkup:
 
 
 # ═══════════════════════════════════════════════════════
+# APPOINTMENTS
+# ═══════════════════════════════════════════════════════
+
+def appts_list_kb(appts: list[dict]) -> InlineKeyboardMarkup:
+    """Show each appointment as a button."""
+    rows = []
+    from helpers import days_until, urgency_emoji
+    import datetime as _dt
+    for a in appts:
+        done = "✅ " if a["done"] else ""
+        d = _dt.date.fromisoformat(a["event_date"])
+        urg = urgency_emoji(days_until(d))
+        time_str = f" {a['event_time']}" if a.get("event_time") else ""
+        label = f"{done}{urg} {a['title']} — {a['event_date']}{time_str}"
+        # Telegram limits callback data to 64 bytes, label is just display
+        rows.append([InlineKeyboardButton(label[:60], callback_data=f"appts:detail:{a['id']}")])
+
+    rows.append([InlineKeyboardButton("➕ Add Appointment", callback_data="appts:add")])
+    rows.append(back_button_row())
+    return InlineKeyboardMarkup(rows)
+
+
+def appt_detail_kb(appt_id: int, is_done: bool) -> InlineKeyboardMarkup:
+    rows = []
+    if not is_done:
+        rows.append([InlineKeyboardButton("✅ Mark Done", callback_data=f"appts:done:{appt_id}")])
+    else:
+        rows.append([InlineKeyboardButton("↩️ Reopen", callback_data=f"appts:undone:{appt_id}")])
+    rows.append([
+        InlineKeyboardButton("📝 Title", callback_data=f"appts:editfield:{appt_id}:title"),
+        InlineKeyboardButton("📅 Date",  callback_data=f"appts:editfield:{appt_id}:event_date"),
+    ])
+    rows.append([
+        InlineKeyboardButton("⏰ Time",  callback_data=f"appts:editfield:{appt_id}:event_time"),
+        InlineKeyboardButton("📒 Notes", callback_data=f"appts:editfield:{appt_id}:notes"),
+    ])
+    rows.append([
+        InlineKeyboardButton("🗑 Delete", callback_data=f"appts:delete:{appt_id}"),
+    ])
+    rows.append([InlineKeyboardButton("⬅️ Appointments", callback_data="appts:view")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ═══════════════════════════════════════════════════════
 # CAPTURE / INBOX
 # ═══════════════════════════════════════════════════════
 
@@ -313,7 +358,7 @@ def capture_menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("💜 New Partner",        callback_data="partners:add")],
         [InlineKeyboardButton("🎓 New Credential",    callback_data="creds:add")],
         [InlineKeyboardButton("💊 New Medication",     callback_data="meds:add")],
-        [InlineKeyboardButton("📅 New Appointment",    callback_data="capture:appointment")],
+        [InlineKeyboardButton("📅 New Appointment",    callback_data="appts:add")],
         [InlineKeyboardButton("📒 Quick Note",         callback_data="notes:add:general")],
         back_button_row(),
     ])
