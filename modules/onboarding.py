@@ -542,6 +542,9 @@ def _parse_date_loosely(text: str) -> str:
 
     text = text.strip()
 
+    # Strip ordinal suffixes (1st, 2nd, 3rd, 4th, 29th, etc.)
+    text = re.sub(r'(\d+)(st|nd|rd|th)\b', r'\1', text, flags=re.IGNORECASE)
+
     # Try ISO format first
     try:
         return datetime.fromisoformat(text).strftime("%Y-%m-%d")
