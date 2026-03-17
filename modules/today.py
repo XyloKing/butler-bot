@@ -19,8 +19,9 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Build and send the Today/Tonight summary."""
     query = update.callback_query
     if query:
-        await query.answer()
-    chat_id = (query or update).message.chat_id if not query else query.message.chat_id
+        chat_id = query.message.chat_id
+    else:
+        chat_id = update.effective_chat.id
     user = get_user(chat_id)
 
     d = today()
@@ -219,7 +220,12 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "\n".join(lines)
 
     if query:
-        await query.edit_message_text(text, reply_markup=today_actions_kb())
+        try:
+            await query.edit_message_text(text, reply_markup=today_actions_kb())
+        except Exception:
+            # "Message is not modified" — content unchanged on refresh
+            # Send as new message instead so user sees the refresh happened
+            await query.message.reply_text(text, reply_markup=today_actions_kb())
     else:
         await update.message.reply_text(text, reply_markup=today_actions_kb())
 
