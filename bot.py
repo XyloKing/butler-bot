@@ -70,6 +70,8 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_command(update, context)
         return
 
+    # Clear any stale input state so we start fresh
+    _clear_input_state(context)
     await update.message.reply_text(
         "What do you need? 🫡",
         reply_markup=main_menu_kb(),
@@ -79,6 +81,56 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════
 # CALLBACK ROUTER — all button presses go here
 # ═══════════════════════════════════════════════════════
+
+def _clear_input_state(context: ContextTypes.DEFAULT_TYPE):
+    """Clear ALL text-input state from context.user_data.
+
+    Called whenever a button is pressed so stale awaiting flags
+    never block future flows.  Each module stores temp keys
+    during multi-step creation; we wipe them all here.
+    """
+    # The master "awaiting" flag that text_router checks
+    context.user_data.pop("awaiting", None)
+
+    # ── Appointment temp keys ────────────────────────
+    for k in ("appt_title", "appt_date", "appt_time", "appt_notes",
+              "appt_category", "appt_priority", "appt_reminder_level"):
+        context.user_data.pop(k, None)
+
+    # ── Bill temp keys ───────────────────────────────
+    for k in ("new_bill_name", "new_bill_amount", "new_bill_name_final",
+              "edit_bill_id", "edit_bill_field"):
+        context.user_data.pop(k, None)
+
+    # ── Partner temp keys ────────────────────────────
+    for k in ("pending_date_type", "pending_date_partner",
+              "edit_partner_id"):
+        context.user_data.pop(k, None)
+
+    # ── Car temp keys ────────────────────────────────
+    for k in ("new_car_type", "new_car_desc", "edit_car_id"):
+        context.user_data.pop(k, None)
+
+    # ── Credential temp keys ─────────────────────────
+    for k in ("new_cred_name", "edit_cred_id", "edit_cred_field"):
+        context.user_data.pop(k, None)
+
+    # ── Med temp keys ────────────────────────────────
+    for k in ("new_med_name", "edit_med_id"):
+        context.user_data.pop(k, None)
+
+    # ── Note temp keys ───────────────────────────────
+    for k in ("note_category", "note_ref_id"):
+        context.user_data.pop(k, None)
+
+    # ── Field editor temp keys ───────────────────────
+    for k in ("field_edit_module", "field_edit_id", "field_edit_field"):
+        context.user_data.pop(k, None)
+
+    # ── Settings temp keys ───────────────────────────
+    for k in ("settings_editing", "settings_selected_days"):
+        context.user_data.pop(k, None)
+
 
 async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route all inline keyboard button presses by prefix."""
@@ -92,6 +144,29 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
     except Exception:
         pass
+
+    # ── CRITICAL: Clear any stale text-input state ────────────
+    # If user taps a button, they're navigating — any pending
+    # "awaiting" flag from a prior flow is stale and must die.
+    # Without this, a leftover awaiting flag causes the text_router
+    # to swallow subsequent inputs or blocks button flows.
+    #
+    # Exception: settings day-picker reuses onboard:day callbacks
+    # while settings_editing is active — don't clear in that case.
+    # Also preserve state for in-progress appointment creation steps
+    # that use buttons mid-flow (category, priority, skip).
+    _is_settings_day_pick = (
+        context.user_data.get("settings_editing")
+        and data.startswith("onboard:")
+    )
+    _is_appt_midflow = data.startswith("appts:") and any(
+        data.startswith(f"appts:{a}")
+        for a in ("category:", "skip_time", "skip_notes",
+                   "priority_ok", "priority_none",
+                   "priority_up", "priority_down")
+    )
+    if not _is_settings_day_pick and not _is_appt_midflow:
+        _clear_input_state(context)
 
     prefix = data.split(":")[0]
 
@@ -142,6 +217,8 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle menu:main callback."""
     query = update.callback_query
     await query.answer()
+    # Ensure all input state is wiped when returning to menu
+    _clear_input_state(context)
     await query.edit_message_text("What do you need? 🫡", reply_markup=main_menu_kb())
 
 
