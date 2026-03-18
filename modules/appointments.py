@@ -585,7 +585,8 @@ async def _save_with_priority(update: Update, context: ContextTypes.DEFAULT_TYPE
     category = context.user_data.pop("appt_category", "other")
     priority = context.user_data.pop("appt_priority", 2)
     reminder_level = context.user_data.pop("appt_reminder_level", "smart")
-    context.user_data["awaiting"] = None
+    # Fully clear awaiting — use pop, not assignment, so no stale None lingers
+    context.user_data.pop("awaiting", None)
 
     with db() as conn:
         conn.execute(
