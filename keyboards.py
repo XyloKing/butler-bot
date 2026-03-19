@@ -413,6 +413,27 @@ def followup_kb(category: str, item_id: int) -> InlineKeyboardMarkup:
 # ONBOARDING
 # ═══════════════════════════════════════════════════════
 
+# Progress steps for onboarding sections (1-based display)
+# Map of section name → (step_number, label)
+ONBOARD_PROGRESS = {
+    "name":          (1, "Your Name"),
+    "shift_type":    (2, "Work Schedule"),
+    "shift_days":    (2, "Work Schedule"),
+    "partners_intro":(3, "People"),
+    "bills_intro":   (4, "Bills"),
+    "car_intro":     (5, "Car & Admin"),
+    "creds_intro":   (6, "Credentials"),
+    "meds_intro":    (7, "Meds"),
+}
+ONBOARD_TOTAL_STEPS = 7
+
+
+def onboard_progress_text(section: str) -> str:
+    """Return a progress indicator line for the given onboarding section."""
+    step, label = ONBOARD_PROGRESS.get(section, (1, "Setup"))
+    return f"📊 Step {step} of {ONBOARD_TOTAL_STEPS} — {label}"
+
+
 def onboard_welcome_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 Let's Set Up", callback_data="onboard:start")],
@@ -421,17 +442,19 @@ def onboard_welcome_kb() -> InlineKeyboardMarkup:
 
 
 def onboard_shift_type_kb() -> InlineKeyboardMarkup:
+    """Shift type picker with back button."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌙 Nights (7p-7a)", callback_data="onboard:shift:7p-7a")],
+        [InlineKeyboardButton("🌙 Nights (7p-7a)",  callback_data="onboard:shift:7p-7a")],
         [InlineKeyboardButton("🌙 Nights (12p-12a)", callback_data="onboard:shift:12p-12a")],
-        [InlineKeyboardButton("☀️ Days (7a-7p)", callback_data="onboard:shift:7a-7p")],
-        [InlineKeyboardButton("🔄 Rotating", callback_data="onboard:shift:rotating")],
-        [InlineKeyboardButton("✏️ Custom", callback_data="onboard:shift:custom")],
+        [InlineKeyboardButton("☀️ Days (7a-7p)",   callback_data="onboard:shift:7a-7p")],
+        [InlineKeyboardButton("🔄 Rotating",         callback_data="onboard:shift:rotating")],
+        [InlineKeyboardButton("✏️ Custom",            callback_data="onboard:shift:custom")],
+        [InlineKeyboardButton("⬅️ Back",              callback_data="onboard:back:name")],
     ])
 
 
 def onboard_days_kb(selected: list[int] = None) -> InlineKeyboardMarkup:
-    """Multi-select weekday picker."""
+    """Multi-select weekday picker with back button."""
     selected = selected or []
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     row1 = []
@@ -446,22 +469,38 @@ def onboard_days_kb(selected: list[int] = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         row1, row2,
         [InlineKeyboardButton("✔️ Done", callback_data="onboard:days_done")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="onboard:back:shift_type")],
     ])
 
 
-def onboard_section_done_kb(next_section: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+def onboard_section_done_kb(next_section: str, back_section: str = None) -> InlineKeyboardMarkup:
+    """Next/Skip/Back buttons for between-section screens."""
+    rows = [
         [InlineKeyboardButton("➡️ Next", callback_data=f"onboard:{next_section}")],
         [InlineKeyboardButton("⏭ Skip Rest", callback_data="onboard:finish")],
-    ])
+    ]
+    if back_section:
+        rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"onboard:back:{back_section}")])
+    return InlineKeyboardMarkup(rows)
 
 
-def onboard_yes_no_kb(callback_prefix: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+def onboard_yes_no_kb(callback_prefix: str, back_section: str = None) -> InlineKeyboardMarkup:
+    """Yes/No keyboard with optional back button."""
+    rows = [
         [
             InlineKeyboardButton("👍 Yes", callback_data=f"{callback_prefix}:yes"),
             InlineKeyboardButton("👎 No",  callback_data=f"{callback_prefix}:no"),
         ],
+    ]
+    if back_section:
+        rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"onboard:back:{back_section}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def onboard_skip_kb() -> InlineKeyboardMarkup:
+    """Skip button shown below text prompts so users have a way out."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭ Skip", callback_data="onboard:skip_item")],
     ])
 
 
