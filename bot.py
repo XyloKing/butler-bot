@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # COMMAND HANDLERS (minimal — just /start and /menu)
 # ═══════════════════════════════════════════════════════
 
-BOT_VERSION = "2.1.0-onboard-overhaul"
+BOT_VERSION = "2.1.1-token-fix"
 
 async def _version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug: show which version is actually running."""

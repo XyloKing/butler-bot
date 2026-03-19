@@ -6,11 +6,14 @@ import os
 from datetime import time
 
 # ─── Telegram ────────────────────────────────────────────────
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+if not BOT_TOKEN:
+    # Fallback: also check BOT_TOKEN (common Railway var name)
+    BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError(
-        "TELEGRAM_BOT_TOKEN environment variable is not set. "
-        "Add it in Railway: Service → Variables → TELEGRAM_BOT_TOKEN"
+        "Bot token not found. Set TELEGRAM_BOT_TOKEN or BOT_TOKEN "
+        "in Railway: Service → Variables"
     )
 
 # ─── Timezone ────────────────────────────────────────────────
