@@ -197,7 +197,11 @@ async def cred_datepick_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif action == "day":
         date_str = parts[2] if len(parts) > 2 else ""
-        name = context.user_data.pop("new_cred_name", "Credential")
+        name = context.user_data.pop("new_cred_name", None)
+        if not name:
+            # Stale button from a completed flow
+            await _show_creds_list(query, chat_id)
+            return
         with db() as conn:
             cursor = conn.execute(
                 "INSERT INTO credentials (chat_id, name, expiry_date) VALUES (?, ?, ?)",

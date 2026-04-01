@@ -195,8 +195,12 @@ async def car_datepick_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif action == "day":
         date_str = parts[2] if len(parts) > 2 else ""
-        desc = context.user_data.pop("new_car_desc", "Car item")
+        desc = context.user_data.pop("new_car_desc", None)
         event_type = context.user_data.pop("new_car_type", "custom")
+        if not desc:
+            # Stale button from a completed flow — just show the list
+            await _show_car_list(query, chat_id)
+            return
         with db() as conn:
             conn.execute(
                 "INSERT INTO car_events (chat_id, event_type, description, due_date) VALUES (?, ?, ?, ?)",
