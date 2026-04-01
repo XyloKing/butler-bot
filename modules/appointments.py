@@ -163,6 +163,10 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting"] = None
         cat_label = CATEGORIES.get(cat, cat)
         title = context.user_data.get("appt_title", "")
+        # Store in DB so it survives bot restarts
+        with db() as conn:
+            conn.execute("INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_appt_title', ?)", (chat_id, title))
+            conn.execute("INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_appt_cat', ?)", (chat_id, cat))
         from keyboards import date_pick_month_kb
         await query.edit_message_text(
             f"📅 {title}\n"
@@ -792,6 +796,17 @@ async def appt_datepick_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif action == "day":
         date_str = parts[2] if len(parts) > 2 else ""
+        # Recover title/category from DB if context was lost
+        chat_id = query.message.chat_id
+        if not context.user_data.get("appt_title"):
+            with db() as conn:
+                t = conn.execute("SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_appt_title'", (chat_id,)).fetchone()
+                c = conn.execute("SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_appt_cat'", (chat_id,)).fetchone()
+                conn.execute("DELETE FROM settings WHERE chat_id = ? AND key IN ('pending_appt_title', 'pending_appt_cat')", (chat_id,))
+            if t:
+                context.user_data["appt_title"] = t["value"]
+            if c:
+                context.user_data["appt_category"] = c["value"]
         context.user_data["appt_date"] = date_str
         context.user_data["awaiting"] = AWAITING_APPT_TIME
         kb = InlineKeyboardMarkup([

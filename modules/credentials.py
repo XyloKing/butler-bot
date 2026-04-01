@@ -142,7 +142,12 @@ async def handle_cred_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     text = update.message.text.strip()
 
     if awaiting == AWAITING_CRED_NAME:
-        context.user_data["new_cred_name"] = text
+        # Store in DB so it survives bot restarts
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_cred_name', ?)",
+                (chat_id, text),
+            )
         context.user_data["awaiting"] = None
         from keyboards import date_pick_month_kb
         await update.message.reply_text(
@@ -200,9 +205,16 @@ async def cred_datepick_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif action == "day":
         date_str = parts[2] if len(parts) > 2 else ""
-        name = context.user_data.pop("new_cred_name", None)
+        # Read from DB (survives restarts)
+        with db() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_cred_name'",
+                (chat_id,)
+            ).fetchone()
+            name = row["value"] if row else None
+            conn.execute("DELETE FROM settings WHERE chat_id = ? AND key = 'pending_cred_name'", (chat_id,))
+        context.user_data.pop("new_cred_name", None)
         if not name:
-            # Stale button from a completed flow
             await _show_creds_list(query, chat_id)
             return
         with db() as conn:

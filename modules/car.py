@@ -76,10 +76,20 @@ async def car_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["awaiting"] = AWAITING_CAR_DESC
             await query.edit_message_text("Description?")
         else:
-            context.user_data["new_car_desc"] = type_labels.get(event_type, event_type)
+            desc = type_labels.get(event_type, event_type)
+            # Store in DB so it survives bot restarts
+            with db() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_car_desc', ?)",
+                    (chat_id, desc),
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_car_type', ?)",
+                    (chat_id, event_type),
+                )
             from keyboards import date_pick_month_kb
             await query.edit_message_text(
-                f"📅 When is the {type_labels.get(event_type, 'item')} due?",
+                f"📅 When is the {desc} due?",
                 reply_markup=date_pick_month_kb("cardp"),
             )
 
@@ -159,7 +169,16 @@ async def handle_car_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     text = update.message.text.strip()
 
     if awaiting == AWAITING_CAR_DESC:
-        context.user_data["new_car_desc"] = text
+        # Store in DB so it survives bot restarts
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_car_desc', ?)",
+                (chat_id, text),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_car_type', ?)",
+                (chat_id, context.user_data.get('new_car_type', 'custom')),
+            )
         context.user_data["awaiting"] = None
         from keyboards import date_pick_month_kb
         await update.message.reply_text(
@@ -195,10 +214,20 @@ async def car_datepick_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif action == "day":
         date_str = parts[2] if len(parts) > 2 else ""
-        desc = context.user_data.pop("new_car_desc", None)
-        event_type = context.user_data.pop("new_car_type", "custom")
+        # Read from DB (survives restarts)
+        with db() as conn:
+            row_desc = conn.execute(
+                "SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_car_desc'", (chat_id,)
+            ).fetchone()
+            row_type = conn.execute(
+                "SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_car_type'", (chat_id,)
+            ).fetchone()
+            conn.execute("DELETE FROM settings WHERE chat_id = ? AND key IN ('pending_car_desc', 'pending_car_type')", (chat_id,))
+        desc = row_desc["value"] if row_desc else None
+        event_type = row_type["value"] if row_type else "custom"
+        context.user_data.pop("new_car_desc", None)
+        context.user_data.pop("new_car_type", None)
         if not desc:
-            # Stale button from a completed flow — just show the list
             await _show_car_list(query, chat_id)
             return
         with db() as conn:
