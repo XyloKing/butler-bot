@@ -27,6 +27,7 @@ from keyboards import (
     onboard_welcome_kb, onboard_shift_type_kb, onboard_days_kb,
     onboard_section_done_kb, onboard_yes_no_kb, onboard_skip_kb,
     onboard_progress_text, main_menu_kb, RELATIONSHIP_TYPES,
+    date_pick_month_kb, date_pick_day_kb,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,9 +52,8 @@ STEP_TO_AWAITING = {
     "bill_name":   AWAITING_BILL_NAME,
     "bill_amount": AWAITING_BILL_AMOUNT,
     "car_desc":    AWAITING_CAR_DESC,
-    "car_date":    AWAITING_CAR_DATE,
+    # car_date and cred_expiry removed — now use button date picker
     "cred_name":   AWAITING_CRED_NAME,
-    "cred_expiry": AWAITING_CRED_EXPIRY,
     "med_name":    AWAITING_MED_NAME,
 }
 
@@ -556,6 +556,91 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                 reply_markup=main_menu_kb(),
             )
         return
+
+    # ── Onboarding Date Picker (ob_date) ─────────────────────
+    # Handles button-based date picking for car due date and credential expiry.
+    # Callback format: onboard:ob_date:{type}:{sub}:{value...}
+    # where type is 'car' or 'cred' and sub is 'yr', 'month', 'day', or 'cancel'.
+    if action == "ob_date":
+        date_type = parts[2] if len(parts) > 2 else ""   # 'car' or 'cred'
+        sub = parts[3] if len(parts) > 3 else ""
+        # Rebuild the callback prefix used by the keyboard functions
+        prefix = f"onboard:ob_date:{date_type}"
+
+        if sub == "cancel":
+            # User cancelled — go back to appropriate section
+            if date_type == "car":
+                update_user(chat_id, onboard_step="car_intro")
+                await query.edit_message_text(
+                    f"{onboard_progress_text('car_intro')}\n\n"
+                    "Got any car maintenance to track?\n"
+                    "(Oil changes, inspections, registration, etc.)",
+                    reply_markup=onboard_yes_no_kb("onboard:add_car", back_section="bills"),
+                )
+            else:  # cred
+                update_user(chat_id, onboard_step="creds_intro")
+                await query.edit_message_text(
+                    f"{onboard_progress_text('creds_intro')}\n\n"
+                    "Any professional licenses or certifications to track?\n"
+                    "(License numbers, expiry dates, CEU requirements)",
+                    reply_markup=onboard_yes_no_kb("onboard:add_creds", back_section="car"),
+                )
+            return
+
+        if sub == "yr":
+            year = int(parts[4]) if len(parts) > 4 else date.today().year
+            await query.edit_message_text(
+                "📅 Pick a month:",
+                reply_markup=date_pick_month_kb(prefix, year),
+            )
+            return
+
+        if sub == "month":
+            month = int(parts[4]) if len(parts) > 4 else 1
+            year = int(parts[5]) if len(parts) > 5 else date.today().year
+            await query.edit_message_text(
+                "📅 Pick the day:",
+                reply_markup=date_pick_day_kb(prefix, month, year),
+            )
+            return
+
+        if sub == "day":
+            date_str = parts[4] if len(parts) > 4 else ""
+            if not date_str:
+                await query.edit_message_text("Something went wrong. Tap /menu to try again.")
+                return
+            # Refresh ob_data in case it changed
+            user = get_user(chat_id)
+            ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+
+            if date_type == "car":
+                car_desc = ob_data.pop("pending_car_desc", "Car item")
+                with db() as conn:
+                    conn.execute(
+                        "INSERT INTO car_events (chat_id, event_type, description, due_date) "
+                        "VALUES (?, ?, ?, ?)",
+                        (chat_id, "custom", car_desc, date_str),
+                    )
+                update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="creds_intro")
+                context.user_data["awaiting"] = None
+                await query.edit_message_text(
+                    f"Added: {car_desc} — due {date_str} 🚗\n\nAnother car item?",
+                    reply_markup=onboard_yes_no_kb("onboard:another_car"),
+                )
+            else:  # cred
+                cred_name = ob_data.pop("pending_cred_name", "Credential")
+                with db() as conn:
+                    conn.execute(
+                        "INSERT INTO credentials (chat_id, name, expiry_date) VALUES (?, ?, ?)",
+                        (chat_id, cred_name, date_str),
+                    )
+                update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="meds_intro")
+                context.user_data["awaiting"] = None
+                await query.edit_message_text(
+                    f"Added: {cred_name} — expires {date_str} 🎓\n\nAnother credential?",
+                    reply_markup=onboard_yes_no_kb("onboard:another_cred"),
+                )
+            return
 
     # ── Welcome ──────────────────────────────────────────────
     if action == "start":
@@ -1132,31 +1217,12 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data["awaiting"] = None
             return True
         ob_data["pending_car_desc"] = desc
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="car_date")
-        context.user_data["awaiting"] = AWAITING_CAR_DATE
-        await update.message.reply_text(
-            f"When is '{desc}' due? (e.g. '2026-05-18' or 'May 2026' or 'in 6 months')"
-        )
-        return True
-
-    # ── Car Date ─────────────────────────────────────────────
-    if awaiting == AWAITING_CAR_DATE:
-        ok, iso_str, err = validate_date(text)
-        if not ok:
-            await update.message.reply_text(err)
-            return True
-        car_desc = ob_data.pop("pending_car_desc", "Car item")
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO car_events (chat_id, event_type, description, due_date) "
-                "VALUES (?, ?, ?, ?)",
-                (chat_id, "custom", car_desc, iso_str),
-            )
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="creds_intro")
+        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="car_desc")
         context.user_data["awaiting"] = None
+        # Show button date picker instead of typed input
         await update.message.reply_text(
-            f"Added: {car_desc} — due {iso_str} 🚗\n\nAnother car item?",
-            reply_markup=onboard_yes_no_kb("onboard:another_car"),
+            f"📅 When is '{desc}' due? Pick a date:",
+            reply_markup=date_pick_month_kb("onboard:ob_date:car"),
         )
         return True
 
@@ -1176,31 +1242,12 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data["awaiting"] = None
             return True
         ob_data["pending_cred_name"] = name
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="cred_expiry")
-        context.user_data["awaiting"] = AWAITING_CRED_EXPIRY
-        await update.message.reply_text(
-            f"When does '{name}' expire? (e.g. '2027-06-01' or 'June 2027')"
-        )
-        return True
-
-    # ── Credential Expiry ────────────────────────────────────
-    if awaiting == AWAITING_CRED_EXPIRY:
-        # Credentials can expire in the future, allow past slightly (already expired = valid data)
-        ok, iso_str, err = validate_date(text, allow_past=True)
-        if not ok:
-            await update.message.reply_text(err)
-            return True
-        cred_name = ob_data.pop("pending_cred_name", "Credential")
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO credentials (chat_id, name, expiry_date) VALUES (?, ?, ?)",
-                (chat_id, cred_name, iso_str),
-            )
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="meds_intro")
+        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="cred_name")
         context.user_data["awaiting"] = None
+        # Show button date picker instead of typed input
         await update.message.reply_text(
-            f"Added: {cred_name} — expires {iso_str} 🎓\n\nAnother credential?",
-            reply_markup=onboard_yes_no_kb("onboard:another_cred"),
+            f"📅 When does '{name}' expire? Pick a date:",
+            reply_markup=date_pick_month_kb("onboard:ob_date:cred"),
         )
         return True
 

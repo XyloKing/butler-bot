@@ -15,7 +15,7 @@ from telegram.ext import ContextTypes
 
 from database import db
 from helpers import today, days_until, friendly_date, urgency_emoji
-from keyboards import back_to_menu_kb
+from keyboards import back_to_menu_kb, date_pick_month_kb, date_pick_day_kb
 
 AWAITING_APPT_TITLE = "appt_title"
 AWAITING_APPT_DATE = "appt_date"
@@ -160,14 +160,15 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "category":
         cat = parts[2] if len(parts) > 2 else "other"
         context.user_data["appt_category"] = cat
-        context.user_data["awaiting"] = AWAITING_APPT_DATE
+        context.user_data["awaiting"] = None
         cat_label = CATEGORIES.get(cat, cat)
         title = context.user_data.get("appt_title", "")
+        from keyboards import date_pick_month_kb
         await query.edit_message_text(
             f"📅 {title}\n"
             f"Category: {cat_label}\n\n"
-            "When is it?\n"
-            "(e.g. 'March 29', '2026-04-15', 'April 3 2026')"
+            "When is it?",
+            reply_markup=date_pick_month_kb("apptdp"),
         )
 
     # ── Priority picker (during creation) ──────────────
@@ -371,8 +372,6 @@ async def handle_appt_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if awaiting == AWAITING_APPT_TITLE:
         return await _handle_title(update, context)
-    elif awaiting == AWAITING_APPT_DATE:
-        return await _handle_date(update, context)
     elif awaiting == AWAITING_APPT_TIME:
         return await _handle_time(update, context)
     elif awaiting == AWAITING_APPT_NOTES:
@@ -765,3 +764,42 @@ def _parse_time_loosely(text: str) -> str | None:
         return f"{h:02d}:00"
 
     return None
+
+
+async def appt_datepick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle apptdp:* callbacks for date picker during appointment creation."""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "cancel":
+        context.user_data.pop("appt_title", None)
+        context.user_data.pop("appt_category", None)
+        from keyboards import back_to_menu_kb, date_pick_month_kb, date_pick_day_kb
+        await query.edit_message_text("Cancelled.", reply_markup=back_to_menu_kb())
+
+    elif action == "yr":
+        year = int(parts[2]) if len(parts) > 2 else date.today().year
+        from keyboards import date_pick_month_kb
+        await query.edit_message_text("📅 When is it?", reply_markup=date_pick_month_kb("apptdp", year))
+
+    elif action == "month":
+        month = int(parts[2]) if len(parts) > 2 else 1
+        year = int(parts[3]) if len(parts) > 3 else date.today().year
+        from keyboards import date_pick_day_kb
+        await query.edit_message_text("📅 Pick the day:", reply_markup=date_pick_day_kb("apptdp", month, year))
+
+    elif action == "day":
+        date_str = parts[2] if len(parts) > 2 else ""
+        context.user_data["appt_date"] = date_str
+        context.user_data["awaiting"] = AWAITING_APPT_TIME
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏭ No Time / All Day", callback_data="appts:skip_time")],
+        ])
+        await query.edit_message_text(
+            f"📅 Date: {date_str}\n\n"
+            "What time? (e.g. '2pm', '14:00', '9:30am')\n"
+            "Or tap below to skip.",
+            reply_markup=kb,
+        )

@@ -33,11 +33,11 @@ from modules.week_view import week_callback
 from modules.bills import bills_callback, handle_bill_text
 from modules.partners import partners_callback, handle_partner_text, partner_date_picker_callback
 from modules.date_picker import datepick_callback
-from modules.car import car_callback, handle_car_text
-from modules.credentials import creds_callback, handle_cred_text
+from modules.car import car_callback, handle_car_text, car_datepick_callback
+from modules.credentials import creds_callback, handle_cred_text, cred_datepick_callback
 from modules.meds import meds_callback, handle_med_text
 from modules.notes import notes_callback, handle_note_text
-from modules.appointments import appts_callback, handle_appt_text
+from modules.appointments import appts_callback, handle_appt_text, appt_datepick_callback
 from modules.settings_handlers import handle_settings_text, handle_settings_day_select
 from modules.field_editor import handle_field_edit_text
 from modules.scheduler import (
@@ -203,6 +203,9 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "datepick":  datepick_callback,
         "pdatepick": partner_date_picker_callback,
         "alter":     handle_alter_schedule,
+        "cardp":     car_datepick_callback,
+        "creddp":    cred_datepick_callback,
+        "apptdp":    appt_datepick_callback,
     }
 
     handler = routers.get(prefix)
@@ -493,19 +496,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # No module claimed it — show menu hint
-    logger.warning(f"[TEXT-FALLBACK] No handler claimed text='{update.message.text.strip()[:30]}' "
-                   f"awaiting={context.user_data.get('awaiting')} chat={update.effective_chat.id}")
-    # DEBUG: Tell the user exactly what happened so we can trace the bug
-    from database import get_user as _gu
-    _u = _gu(update.effective_chat.id)
-    _step = _u["onboard_step"] if _u else "no-user"
-    _ob = _u["onboarded"] if _u else "?"
     await update.message.reply_text(
-        f"[DEBUG] No handler caught your text.\n"
-        f"awaiting={context.user_data.get('awaiting')}\n"
-        f"onboard_step={_step}\n"
-        f"onboarded={_ob}\n\n"
-        f"Tap /menu to get started.",
+        "Tap /menu to get started, or use the buttons above. 🫡",
         reply_markup=main_menu_kb(),
     )
 

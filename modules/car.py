@@ -77,10 +77,10 @@ async def car_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Description?")
         else:
             context.user_data["new_car_desc"] = type_labels.get(event_type, event_type)
-            context.user_data["awaiting"] = AWAITING_CAR_DATE
+            from keyboards import date_pick_month_kb
             await query.edit_message_text(
-                f"When is the {type_labels.get(event_type, 'item')} due?\n"
-                "(e.g. '2026-05-18' or 'May 2026')"
+                f"📅 When is the {type_labels.get(event_type, 'item')} due?",
+                reply_markup=date_pick_month_kb("cardp"),
             )
 
     elif action == "editfield":
@@ -160,40 +160,50 @@ async def handle_car_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if awaiting == AWAITING_CAR_DESC:
         context.user_data["new_car_desc"] = text
-        context.user_data["awaiting"] = AWAITING_CAR_DATE
-        await update.message.reply_text("When is it due? (e.g. '2026-05-18' or 'May 2026')")
-        return True
-
-    if awaiting == AWAITING_CAR_DATE:
-        from modules.onboarding import _parse_date_loosely
-        due_date = _parse_date_loosely(text)
-
-        # Check if this is an edit
-        edit_id = context.user_data.pop("edit_car_id", None)
-        if edit_id:
-            with db() as conn:
-                conn.execute("UPDATE car_events SET due_date = ? WHERE id = ? AND chat_id = ?",
-                             (due_date, edit_id, chat_id))
-            context.user_data["awaiting"] = None
-            await update.message.reply_text(f"✅ Updated due date to {due_date}.",
-                                            reply_markup=car_detail_kb(edit_id, False))
-            return True
-
-        desc = context.user_data.pop("new_car_desc", "Car item")
-        event_type = context.user_data.pop("new_car_type", "custom")
         context.user_data["awaiting"] = None
-
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO car_events (chat_id, event_type, description, due_date) VALUES (?, ?, ?, ?)",
-                (chat_id, event_type, desc, due_date),
-            )
-
-        events = _get_car_events(chat_id)
+        from keyboards import date_pick_month_kb
         await update.message.reply_text(
-            f"✅ Added: {desc} — due {due_date}",
-            reply_markup=car_list_kb(events),
+            "📅 When is it due?",
+            reply_markup=date_pick_month_kb("cardp"),
         )
         return True
 
     return False
+
+
+async def car_datepick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle cardp:* callbacks for the date picker during car item creation."""
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "cancel":
+        await _show_car_list(query, chat_id)
+
+    elif action == "yr":
+        year = int(parts[2]) if len(parts) > 2 else __import__('datetime').date.today().year
+        from keyboards import date_pick_month_kb
+        await query.edit_message_text("📅 When is it due?", reply_markup=date_pick_month_kb("cardp", year))
+
+    elif action == "month":
+        month = int(parts[2]) if len(parts) > 2 else 1
+        year = int(parts[3]) if len(parts) > 3 else __import__('datetime').date.today().year
+        from keyboards import date_pick_day_kb
+        await query.edit_message_text("📅 Pick the day:", reply_markup=date_pick_day_kb("cardp", month, year))
+
+    elif action == "day":
+        date_str = parts[2] if len(parts) > 2 else ""
+        desc = context.user_data.pop("new_car_desc", "Car item")
+        event_type = context.user_data.pop("new_car_type", "custom")
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO car_events (chat_id, event_type, description, due_date) VALUES (?, ?, ?, ?)",
+                (chat_id, event_type, desc, date_str),
+            )
+        events = _get_car_events(chat_id)
+        await query.edit_message_text(
+            f"✅ Added: {desc} — due {date_str}",
+            reply_markup=car_list_kb(events),
+        )

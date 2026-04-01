@@ -140,27 +140,11 @@ async def handle_cred_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if awaiting == AWAITING_CRED_NAME:
         context.user_data["new_cred_name"] = text
-        context.user_data["awaiting"] = AWAITING_CRED_EXPIRY
-        await update.message.reply_text(f"When does {text} expire? (YYYY-MM-DD or 'Month Year')")
-        return True
-
-    if awaiting == AWAITING_CRED_EXPIRY:
-        from modules.onboarding import _parse_date_loosely
-        name = context.user_data.pop("new_cred_name", "Credential")
-        expiry = _parse_date_loosely(text)
         context.user_data["awaiting"] = None
-
-        with db() as conn:
-            cursor = conn.execute(
-                "INSERT INTO credentials (chat_id, name, expiry_date) VALUES (?, ?, ?)",
-                (chat_id, name, expiry),
-            )
-            cred_id = cursor.lastrowid
-
+        from keyboards import date_pick_month_kb
         await update.message.reply_text(
-            f"✅ Added: {name} — expires {expiry}\n\n"
-            "You can add license #, state, and CEU info from the detail view.",
-            reply_markup=cred_detail_kb(cred_id),
+            f"📅 When does {text} expire?",
+            reply_markup=date_pick_month_kb("creddp"),
         )
         return True
 
@@ -187,3 +171,41 @@ async def handle_cred_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return True
 
     return False
+
+
+async def cred_datepick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle creddp:* callbacks for date picker during credential creation."""
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "cancel":
+        await _show_creds_list(query, chat_id)
+
+    elif action == "yr":
+        year = int(parts[2]) if len(parts) > 2 else __import__('datetime').date.today().year
+        from keyboards import date_pick_month_kb
+        await query.edit_message_text("📅 When does it expire?", reply_markup=date_pick_month_kb("creddp", year))
+
+    elif action == "month":
+        month = int(parts[2]) if len(parts) > 2 else 1
+        year = int(parts[3]) if len(parts) > 3 else __import__('datetime').date.today().year
+        from keyboards import date_pick_day_kb
+        await query.edit_message_text("📅 Pick the day:", reply_markup=date_pick_day_kb("creddp", month, year))
+
+    elif action == "day":
+        date_str = parts[2] if len(parts) > 2 else ""
+        name = context.user_data.pop("new_cred_name", "Credential")
+        with db() as conn:
+            cursor = conn.execute(
+                "INSERT INTO credentials (chat_id, name, expiry_date) VALUES (?, ?, ?)",
+                (chat_id, name, date_str),
+            )
+            cred_id = cursor.lastrowid
+        await query.edit_message_text(
+            f"✅ Added: {name} — expires {date_str}\n\n"
+            "You can add license #, state, and CEU info from the detail view.",
+            reply_markup=cred_detail_kb(cred_id),
+        )
