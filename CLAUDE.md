@@ -244,6 +244,26 @@ Risk:
 - Keep callbacks, navigation, and state transitions explicit.
 - Favor maintainability over cleverness.
 
+## Required flow test before every push
+
+Before ANY git push, run the full flow integration test:
+
+```
+TELEGRAM_BOT_TOKEN=test python3 test_full_flow.py
+```
+
+This test exercises every complete pathway through the bot:
+- Full onboarding: name → shift → days → partners (with type + frequency) → bills → car (with date picker) → credentials (with date picker) → meds → done
+- All skip paths
+- Every menu add flow: credentials, car (all 4 types), appointments, bills, partners, meds
+- Cross-module text router isolation (no handler hijacking)
+- Stale button handling
+- Empty state handling
+
+All tests must pass. No exceptions. If a test fails, fix the code before pushing.
+
+If you add a new feature or flow, add a test for it in test_full_flow.py FIRST.
+
 ## Forbidden shortcuts
 
 Do not say "fixed" if you did not run it.
