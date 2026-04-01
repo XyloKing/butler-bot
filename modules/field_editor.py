@@ -65,8 +65,21 @@ TABLE_MAP = {
 
 async def start_field_edit(update: Update, context: ContextTypes.DEFAULT_TYPE,
                            module: str, item_id: int, field: str):
-    """Begin a field edit — send prompt and store state."""
+    """Begin a field edit — send prompt and store state.
+    For date fields, launch the button-based date picker instead of text input.
+    """
     query = update.callback_query
+
+    # Date fields get the button-based picker
+    if field in DATE_FIELDS:
+        from keyboards import date_pick_month_kb
+        prefix = f"datepick:{module}:{item_id}:{field}"
+        await query.edit_message_text(
+            "📅 Pick a date — choose a month:",
+            reply_markup=date_pick_month_kb(prefix),
+        )
+        return
+
     prompt = FIELD_PROMPTS.get(field, f"New value for {field}?")
     context.user_data["awaiting"] = "field_edit"
     context.user_data["field_edit_module"] = module

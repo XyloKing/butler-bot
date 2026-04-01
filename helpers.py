@@ -119,17 +119,19 @@ def ascii_week_calendar(
     work_days: list[date],
     events: dict[date, list[str]],  # date -> list of emoji+label
 ) -> str:
-    """Build a text-based week view."""
+    """Build a text-based week view. Sunday–Saturday layout."""
     lines = []
     header = "┌" + "─" * 50 + "┐"
     footer = "└" + "─" * 50 + "┘"
     lines.append(header)
 
+    # Sunday-first: iterate in Sun-Sat order
+    # start is already the Sunday of the week (set by caller)
     for i in range(7):
         d = start + timedelta(days=i)
         day_label = d.strftime("%a %m/%d")
-        is_today = d == today()
-        marker = " ◀ TODAY" if is_today else ""
+        is_today_flag = d == today()
+        marker = " ◀ TODAY" if is_today_flag else ""
 
         if d in work_days:
             shift = "🏥 Work"

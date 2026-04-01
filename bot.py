@@ -28,7 +28,8 @@ from modules.onboarding import start_command, onboard_callback, handle_onboard_t
 from modules.today import today_view
 from modules.week_view import week_callback
 from modules.bills import bills_callback, handle_bill_text
-from modules.partners import partners_callback, handle_partner_text
+from modules.partners import partners_callback, handle_partner_text, partner_date_picker_callback
+from modules.date_picker import datepick_callback
 from modules.car import car_callback, handle_car_text
 from modules.credentials import creds_callback, handle_cred_text
 from modules.meds import meds_callback, handle_med_text
@@ -52,7 +53,12 @@ logger = logging.getLogger(__name__)
 # COMMAND HANDLERS (minimal — just /start and /menu)
 # ═══════════════════════════════════════════════════════
 
-BOT_VERSION = "2.1.1-token-fix"
+BOT_VERSION = "2.2.0-ux-overhaul"
+
+def _week_emoji_row(days: list[int]) -> str:
+    """Build a Sun-Sat emoji row for schedule display."""
+    sun_sat = [6, 0, 1, 2, 3, 4, 5]
+    return "  ".join("🏥" if d in days else "🏠" for d in sun_sat)
 
 async def _version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug: show which version is actually running."""
@@ -104,7 +110,7 @@ def _clear_input_state(context: ContextTypes.DEFAULT_TYPE):
 
     # ── Partner temp keys ────────────────────────────
     for k in ("pending_date_type", "pending_date_partner",
-              "edit_partner_id"):
+              "edit_partner_id", "new_partner_type", "new_partner_freq"):
         context.user_data.pop(k, None)
 
     # ── Car temp keys ────────────────────────────────
@@ -175,20 +181,27 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_settings_day_select(update, context)
         return
 
+    # Handle noop buttons (informational headers in grids)
+    if data == "noop":
+        return
+
     routers = {
-        "menu":     handle_menu,
-        "today":    today_view,
-        "week":     week_callback,
-        "bills":    bills_callback,
-        "partners": partners_callback,
-        "car":      car_callback,
-        "creds":    creds_callback,
-        "meds":     meds_callback,
-        "notes":    notes_callback,
-        "appts":    appts_callback,
-        "capture":  handle_capture,
-        "settings": handle_settings,
-        "onboard":  onboard_callback,
+        "menu":      handle_menu,
+        "today":     today_view,
+        "week":      week_callback,
+        "bills":     bills_callback,
+        "partners":  partners_callback,
+        "car":       car_callback,
+        "creds":     creds_callback,
+        "meds":      meds_callback,
+        "notes":     notes_callback,
+        "appts":     appts_callback,
+        "capture":   handle_capture,
+        "settings":  handle_settings,
+        "onboard":   onboard_callback,
+        "datepick":  datepick_callback,
+        "pdatepick": partner_date_picker_callback,
+        "alter":     handle_alter_schedule,
     }
 
     handler = routers.get(prefix)
@@ -220,6 +233,45 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Ensure all input state is wiped when returning to menu
     _clear_input_state(context)
     await query.edit_message_text("What do you need? 🫡", reply_markup=main_menu_kb())
+
+
+async def handle_alter_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle alter:* callbacks — quick schedule changes from Today/Week view."""
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else "start"
+
+    if action == "start":
+        from keyboards import alter_schedule_kb
+        await query.edit_message_text(
+            "📅 ALTER SCHEDULE\n\n"
+            "Quick change for today or tomorrow?\n"
+            "Or edit your full rotation below.",
+            reply_markup=alter_schedule_kb(),
+        )
+
+    elif action.startswith("override_on") or action.startswith("override_off"):
+        from database import db
+        from helpers import today
+        from datetime import timedelta
+        is_working = 1 if "on" in action else 0
+        day_offset = int(parts[2]) if len(parts) > 2 else 0
+        target = today() + timedelta(days=day_offset)
+        label = "today" if day_offset == 0 else "tomorrow"
+        status = "🏥 Working" if is_working else "🏠 Off"
+
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO shift_overrides (chat_id, override_date, is_working) VALUES (?, ?, ?)",
+                (chat_id, target.isoformat(), is_working),
+            )
+        from keyboards import today_actions_kb
+        await query.edit_message_text(
+            f"✅ {status} {label} ({target.strftime('%A %m/%d')}) — override saved.",
+            reply_markup=today_actions_kb(),
+        )
 
 
 async def handle_capture(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,16 +317,26 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (chat_id,)
             ).fetchone()
         if shift:
-            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            w1 = ", ".join(day_names[d] for d in _json.loads(shift["week1_days"] or "[]"))
-            w2 = ", ".join(day_names[d] for d in _json.loads(shift["week2_days"] or "[]"))
-            text = (
+            day_names = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+            sun_sat = [6, 0, 1, 2, 3, 4, 5]
+            w1_days = _json.loads(shift["week1_days"] or "[]")
+            w2_days = _json.loads(shift["week2_days"] or "[]")
+            w1 = ", ".join(day_names[d] for d in sun_sat if d in w1_days)
+            w2 = ", ".join(day_names[d] for d in sun_sat if d in w2_days)
+
+            # Show 14-day grid
+            from keyboards import schedule_14day_grid_kb
+            grid_text = (
                 f"🏥 Current Schedule\n"
-                f"Shift: {shift['shift_type']}\n"
+                f"Shift: {shift['shift_type']}\n\n"
+                f"        Sun Mon Tue Wed Thu Fri Sat\n"
+                f"Wk 1:  {_week_emoji_row(w1_days)}\n"
+                f"Wk 2:  {_week_emoji_row(w2_days)}\n\n"
                 f"Week 1: {w1}\n"
                 f"Week 2: {w2}\n\n"
                 f"What do you want to change?"
             )
+            text = grid_text
         else:
             text = "No schedule set yet. What do you want to configure?"
         await query.edit_message_text(text, reply_markup=schedule_edit_kb())
@@ -345,6 +407,68 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💰 Payday: Every Friday\n\n"
             "(Editing payday settings coming soon)",
             reply_markup=settings_kb(),
+        )
+
+    elif action == "toggles":
+        from keyboards import feature_toggles_kb
+        from database import db
+        # Load current toggles from settings table
+        toggles = {}
+        with db() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM settings WHERE chat_id = ? AND key LIKE 'toggle_%'",
+                (chat_id,)
+            ).fetchall()
+        for row in rows:
+            key = row["key"].replace("toggle_", "")
+            toggles[key] = row["value"] == "1"
+        await query.edit_message_text(
+            "🛠 FEATURE TOGGLES\n\n"
+            "Tap a feature to turn it on/off:\n"
+            "(✅ = on, ❌ = off)",
+            reply_markup=feature_toggles_kb(toggles),
+        )
+
+    elif action == "toggle":
+        # settings:toggle:{feature_key}
+        feature_key = parts[2] if len(parts) > 2 else ""
+        from keyboards import feature_toggles_kb
+        from database import db
+        # Toggle the value
+        with db() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE chat_id = ? AND key = ?",
+                (chat_id, f"toggle_{feature_key}"),
+            ).fetchone()
+            if row:
+                new_val = "0" if row["value"] == "1" else "1"
+                conn.execute(
+                    "UPDATE settings SET value = ? WHERE chat_id = ? AND key = ?",
+                    (new_val, chat_id, f"toggle_{feature_key}"),
+                )
+            else:
+                # First toggle — default was ON, so set to OFF
+                new_val = "0"
+                conn.execute(
+                    "INSERT INTO settings (chat_id, key, value) VALUES (?, ?, ?)",
+                    (chat_id, f"toggle_{feature_key}", new_val),
+                )
+        # Reload toggles and re-show
+        toggles = {}
+        with db() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM settings WHERE chat_id = ? AND key LIKE 'toggle_%'",
+                (chat_id,)
+            ).fetchall()
+        for row in rows:
+            key = row["key"].replace("toggle_", "")
+            toggles[key] = row["value"] == "1"
+        status_word = "ON" if new_val == "1" else "OFF"
+        await query.edit_message_text(
+            f"🛠 FEATURE TOGGLES\n\n"
+            f"{feature_key.replace('_', ' ').title()}: {status_word}\n\n"
+            f"Tap a feature to turn it on/off:",
+            reply_markup=feature_toggles_kb(toggles),
         )
 
 

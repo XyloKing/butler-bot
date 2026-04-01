@@ -36,8 +36,10 @@ async def week_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _show_week(query, chat_id, offset=0):
     d = today() + timedelta(days=offset)
-    # Start from Monday of this week
-    start = d - timedelta(days=d.weekday())
+    # Start from Sunday of this week (Sunday-first layout)
+    # Python weekday: Mon=0 .. Sun=6. We want Sunday first.
+    sun_offset = (d.weekday() + 1) % 7  # days since last Sunday
+    start = d - timedelta(days=sun_offset)
 
     # Get shift schedule
     with db() as conn:
@@ -170,7 +172,10 @@ async def _show_week(query, chat_id, offset=0):
     rows = [nav_row]
     if today_row:
         rows.append(today_row)
-    rows.append([InlineKeyboardButton("⬅️ Menu", callback_data="menu:main")])
+    rows.append([
+        InlineKeyboardButton("📅 Alter Schedule", callback_data="alter:start"),
+        InlineKeyboardButton("⬅️ Menu", callback_data="menu:main"),
+    ])
     kb = InlineKeyboardMarkup(rows)
 
     await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")

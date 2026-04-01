@@ -5,7 +5,122 @@ Button-first UX — user should almost never type.
 Callback data format: "section:action:id"
 Examples: "menu:main", "bills:view", "bills:paid:3", "partner:add"
 """
+import calendar
+from datetime import date
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+
+# ═══════════════════════════════════════════════════════
+# RELATIONSHIP TYPE EMOJI MAPPING
+# ═══════════════════════════════════════════════════════
+
+RELATIONSHIP_TYPES = {
+    "partner":    ("💜", "Partner"),
+    "friend":     ("💚", "Friend"),
+    "family":     ("🧡", "Family"),
+    "important":  ("⭐", "Important Person"),
+}
+
+INTERACTION_FREQUENCIES = {
+    "daily":    "Every day",
+    "weekly":   "~Once a week",
+    "biweekly": "Every 2 weeks",
+    "monthly":  "~Once a month",
+    "flexible": "No set schedule",
+}
+
+
+# ═══════════════════════════════════════════════════════
+# BUTTON-BASED DATE PICKER (month → day → year)
+# ═══════════════════════════════════════════════════════
+
+def date_pick_month_kb(callback_prefix: str, year: int = None) -> InlineKeyboardMarkup:
+    """Step 1: Pick a month. callback_prefix identifies the flow (e.g. 'datepick:appts:3')."""
+    if year is None:
+        year = date.today().year
+    months = [
+        ("Jan", 1), ("Feb", 2), ("Mar", 3), ("Apr", 4),
+        ("May", 5), ("Jun", 6), ("Jul", 7), ("Aug", 8),
+        ("Sep", 9), ("Oct", 10), ("Nov", 11), ("Dec", 12),
+    ]
+    rows = []
+    for i in range(0, 12, 3):
+        row = []
+        for name, num in months[i:i+3]:
+            row.append(InlineKeyboardButton(
+                name, callback_data=f"{callback_prefix}:month:{num}:{year}"
+            ))
+        rows.append(row)
+    # Year toggle
+    rows.append([
+        InlineKeyboardButton(f"◀ {year - 1}", callback_data=f"{callback_prefix}:yr:{year - 1}"),
+        InlineKeyboardButton(f"📅 {year}", callback_data="noop"),
+        InlineKeyboardButton(f"{year + 1} ▶", callback_data=f"{callback_prefix}:yr:{year + 1}"),
+    ])
+    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{callback_prefix}:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def date_pick_day_kb(callback_prefix: str, month: int, year: int) -> InlineKeyboardMarkup:
+    """Step 2: Pick a day for the selected month/year."""
+    month_name = calendar.month_abbr[month]
+    days_in_month = calendar.monthrange(year, month)[1]
+    rows = []
+    # Header
+    rows.append([InlineKeyboardButton(f"📅 {month_name} {year}", callback_data="noop")])
+    # Day grid — 7 per row
+    row = []
+    for d in range(1, days_in_month + 1):
+        row.append(InlineKeyboardButton(
+            str(d), callback_data=f"{callback_prefix}:day:{year}-{month:02d}-{d:02d}"
+        ))
+        if len(row) == 7:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back to months", callback_data=f"{callback_prefix}:yr:{year}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def date_pick_mmdd_month_kb(callback_prefix: str) -> InlineKeyboardMarkup:
+    """Step 1 for MM-DD only picker (recurring dates like birthdays)."""
+    months = [
+        ("Jan", 1), ("Feb", 2), ("Mar", 3), ("Apr", 4),
+        ("May", 5), ("Jun", 6), ("Jul", 7), ("Aug", 8),
+        ("Sep", 9), ("Oct", 10), ("Nov", 11), ("Dec", 12),
+    ]
+    rows = []
+    for i in range(0, 12, 3):
+        row = []
+        for name, num in months[i:i+3]:
+            row.append(InlineKeyboardButton(
+                name, callback_data=f"{callback_prefix}:mmdd_m:{num}"
+            ))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{callback_prefix}:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def date_pick_mmdd_day_kb(callback_prefix: str, month: int) -> InlineKeyboardMarkup:
+    """Step 2 for MM-DD picker — pick a day."""
+    month_name = calendar.month_abbr[month]
+    # Use a leap year to get max days
+    days_in_month = calendar.monthrange(2000, month)[1]
+    rows = []
+    rows.append([InlineKeyboardButton(f"📅 {month_name}", callback_data="noop")])
+    row = []
+    for d in range(1, days_in_month + 1):
+        row.append(InlineKeyboardButton(
+            str(d), callback_data=f"{callback_prefix}:mmdd_d:{month:02d}-{d:02d}"
+        ))
+        if len(row) == 7:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back to months", callback_data=f"{callback_prefix}:mmdd_back")])
+    return InlineKeyboardMarkup(rows)
 
 
 # ═══════════════════════════════════════════════════════
@@ -59,6 +174,7 @@ def today_actions_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📒 Add Note",       callback_data="notes:add:today"),
         ],
         [
+            InlineKeyboardButton("📅 Alter Schedule", callback_data="alter:start"),
             InlineKeyboardButton("🔄 Refresh",        callback_data="today:view"),
         ],
         back_button_row(),
@@ -118,15 +234,23 @@ def bill_detail_kb(bill_id: int, is_paid: bool) -> InlineKeyboardMarkup:
 def partners_list_kb(partners: list[dict]) -> InlineKeyboardMarkup:
     rows = []
     for p in partners:
+        # Use relationship-based emoji if available, fall back to custom emoji
         try:
-            emoji = p["emoji"] or "💜"
-        except (IndexError, KeyError):
-            emoji = "💜"
+            rel_type = p.get("relationship_type") or p["relationship_type"]
+        except (KeyError, TypeError):
+            rel_type = None
+        if rel_type and rel_type in RELATIONSHIP_TYPES:
+            emoji = RELATIONSHIP_TYPES[rel_type][0]
+        else:
+            try:
+                emoji = p["emoji"] or "💜"
+            except (IndexError, KeyError):
+                emoji = "💜"
         rows.append([InlineKeyboardButton(
             f"{emoji} {p['name']}",
             callback_data=f"partners:detail:{p['id']}"
         )])
-    rows.append([InlineKeyboardButton("➕ Add Partner", callback_data="partners:add")])
+    rows.append([InlineKeyboardButton("➕ Add Person", callback_data="partners:add")])
     rows.append(back_button_row())
     return InlineKeyboardMarkup(rows)
 
@@ -143,14 +267,40 @@ def partner_detail_kb(partner_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("📝 Name",  callback_data=f"partners:editfield:{partner_id}:name"),
-            InlineKeyboardButton("😀 Emoji", callback_data=f"partners:editfield:{partner_id}:emoji"),
+            InlineKeyboardButton("👥 Type",  callback_data=f"partners:picktype:{partner_id}"),
         ],
         [
+            InlineKeyboardButton("🔔 Frequency", callback_data=f"partners:pickfreq:{partner_id}"),
             InlineKeyboardButton("🎯 Dates/Month", callback_data=f"partners:editfield:{partner_id}:target_dates_per_month"),
+        ],
+        [
             InlineKeyboardButton("🗑 Remove",       callback_data=f"partners:delete:{partner_id}"),
         ],
         [InlineKeyboardButton("⬅️ People", callback_data="partners:view")],
     ])
+
+
+def relationship_type_kb(partner_id: int) -> InlineKeyboardMarkup:
+    """Pick a relationship type for a person."""
+    rows = []
+    for key, (emoji, label) in RELATIONSHIP_TYPES.items():
+        rows.append([InlineKeyboardButton(
+            f"{emoji} {label}",
+            callback_data=f"partners:settype:{partner_id}:{key}"
+        )])
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"partners:detail:{partner_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def interaction_freq_kb(partner_id: int) -> InlineKeyboardMarkup:
+    """Pick how often you want to interact with this person."""
+    rows = []
+    for key, label in INTERACTION_FREQUENCIES.items():
+        rows.append([InlineKeyboardButton(
+            label, callback_data=f"partners:setfreq:{partner_id}:{key}"
+        )])
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"partners:detail:{partner_id}")])
+    return InlineKeyboardMarkup(rows)
 
 
 # ═══════════════════════════════════════════════════════
@@ -453,16 +603,21 @@ def onboard_shift_type_kb() -> InlineKeyboardMarkup:
     ])
 
 
+# Day order: Sunday first (Sun=6, Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5)
+_SUN_SAT_ORDER = [6, 0, 1, 2, 3, 4, 5]
+_DAY_NAMES = {6: "Sun", 0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat"}
+
+
 def onboard_days_kb(selected: list[int] = None) -> InlineKeyboardMarkup:
-    """Multi-select weekday picker with back button."""
+    """Multi-select weekday picker (Sun–Sat layout) with back button."""
     selected = selected or []
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    row1 = []
-    row2 = []
-    for i, name in enumerate(days):
-        check = "✅ " if i in selected else ""
-        btn = InlineKeyboardButton(f"{check}{name}", callback_data=f"onboard:day:{i}")
-        if i < 4:
+    row1 = []  # Sun Mon Tue Wed
+    row2 = []  # Thu Fri Sat
+    for idx, day_num in enumerate(_SUN_SAT_ORDER):
+        name = _DAY_NAMES[day_num]
+        check = "✅ " if day_num in selected else ""
+        btn = InlineKeyboardButton(f"{check}{name}", callback_data=f"onboard:day:{day_num}")
+        if idx < 4:
             row1.append(btn)
         else:
             row2.append(btn)
@@ -471,6 +626,31 @@ def onboard_days_kb(selected: list[int] = None) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("✔️ Done", callback_data="onboard:days_done")],
         [InlineKeyboardButton("⬅️ Back", callback_data="onboard:back:shift_type")],
     ])
+
+
+def schedule_14day_grid_kb(w1_days: list[int], w2_days: list[int]) -> InlineKeyboardMarkup:
+    """14-button grid showing Sun-Sat × 2 weeks for the rotating schedule."""
+    rows = []
+    # Header row
+    header = [InlineKeyboardButton(d, callback_data="noop") for d in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]]
+    rows.append(header)
+    # Week 1 row
+    w1_row = []
+    for day_num in _SUN_SAT_ORDER:
+        if day_num in w1_days:
+            w1_row.append(InlineKeyboardButton("🏥", callback_data="noop"))
+        else:
+            w1_row.append(InlineKeyboardButton("🏠", callback_data="noop"))
+    rows.append(w1_row)
+    # Week 2 row
+    w2_row = []
+    for day_num in _SUN_SAT_ORDER:
+        if day_num in w2_days:
+            w2_row.append(InlineKeyboardButton("🏥", callback_data="noop"))
+        else:
+            w2_row.append(InlineKeyboardButton("🏠", callback_data="noop"))
+    rows.append(w2_row)
+    return InlineKeyboardMarkup(rows)
 
 
 def onboard_section_done_kb(next_section: str, back_section: str = None) -> InlineKeyboardMarkup:
@@ -514,9 +694,34 @@ def settings_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🏥 Work Schedule",      callback_data="settings:schedule")],
         [InlineKeyboardButton("📅 Override Shift Day",  callback_data="settings:override")],
         [InlineKeyboardButton("💰 Payday Settings",    callback_data="settings:payday")],
+        [InlineKeyboardButton("🛠 Feature Toggles",    callback_data="settings:toggles")],
         [InlineKeyboardButton("🔄 Re-run Onboarding",  callback_data="onboard:start")],
         back_button_row(),
     ])
+
+
+def feature_toggles_kb(toggles: dict) -> InlineKeyboardMarkup:
+    """Settings panel showing on/off toggles for each bot feature."""
+    features = [
+        ("med_reminders",    "💊 Med Reminders"),
+        ("bill_reminders",   "💸 Bill Reminders"),
+        ("appt_reminders",   "📅 Appt Reminders"),
+        ("afternoon_digest", "☀️ Afternoon Digest"),
+        ("evening_checkin",  "🌙 Evening Check-in"),
+        ("weekly_digest",    "📆 Weekly Summary"),
+        ("wellness_checks",  "💧 Wellness Checks"),
+        ("partner_nudges",   "💜 Partner Nudges"),
+    ]
+    rows = []
+    for key, label in features:
+        is_on = toggles.get(key, True)  # default ON
+        status = "✅" if is_on else "❌"
+        rows.append([InlineKeyboardButton(
+            f"{status} {label}",
+            callback_data=f"settings:toggle:{key}"
+        )])
+    rows.append([InlineKeyboardButton("⬅️ Settings", callback_data="settings:view")])
+    return InlineKeyboardMarkup(rows)
 
 
 def schedule_edit_kb() -> InlineKeyboardMarkup:
@@ -536,4 +741,17 @@ def override_day_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🏥 Working Tomorrow", callback_data="settings:override_on:1")],
         [InlineKeyboardButton("🏠 Off Tomorrow",     callback_data="settings:override_off:1")],
         [InlineKeyboardButton("⬅️ Settings", callback_data="settings:view")],
+    ])
+
+
+def alter_schedule_kb() -> InlineKeyboardMarkup:
+    """Alter schedule — quick access from Today/Week view."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏥 Working Today",    callback_data="alter:override_on:0")],
+        [InlineKeyboardButton("🏠 Off Today",        callback_data="alter:override_off:0")],
+        [InlineKeyboardButton("🏥 Working Tomorrow", callback_data="alter:override_on:1")],
+        [InlineKeyboardButton("🏠 Off Tomorrow",     callback_data="alter:override_off:1")],
+        [InlineKeyboardButton("———————————————", callback_data="noop")],
+        [InlineKeyboardButton("📅 Edit Full Schedule", callback_data="settings:schedule")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="today:view")],
     ])

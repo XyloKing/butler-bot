@@ -1,6 +1,7 @@
 """
 💜 People & Dates module.
 Partner tracking, birthdays, anniversaries, date scheduling.
+Now with relationship types, interaction frequency, and button-based date picker.
 """
 from datetime import date
 from telegram import Update
@@ -10,6 +11,10 @@ from database import db
 from helpers import today, days_until, friendly_date
 from keyboards import (
     partners_list_kb, partner_detail_kb, back_to_menu_kb,
+    relationship_type_kb, interaction_freq_kb,
+    date_pick_mmdd_month_kb, date_pick_mmdd_day_kb,
+    date_pick_month_kb, date_pick_day_kb,
+    RELATIONSHIP_TYPES, INTERACTION_FREQUENCIES,
 )
 
 AWAITING_PARTNER_NAME = "partner_name"
@@ -36,19 +41,76 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("What's their name?")
         context.user_data["awaiting"] = AWAITING_PARTNER_NAME
 
+    elif action == "picktype":
+        # Show relationship type picker
+        pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else item_id
+        await query.edit_message_text(
+            "What's your relationship?\n\nThis helps me pick the right emoji and notifications.",
+            reply_markup=relationship_type_kb(pid),
+        )
+
+    elif action == "settype":
+        # partners:settype:{id}:{type_key}
+        pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        type_key = parts[3] if len(parts) > 3 else "partner"
+        if pid and type_key in RELATIONSHIP_TYPES:
+            emoji, label = RELATIONSHIP_TYPES[type_key]
+            with db() as conn:
+                conn.execute(
+                    "UPDATE partners SET relationship_type = ?, emoji = ? WHERE id = ? AND chat_id = ?",
+                    (type_key, emoji, pid, chat_id),
+                )
+            await query.edit_message_text(
+                f"✅ Set to {emoji} {label}",
+                reply_markup=partner_detail_kb(pid),
+            )
+
+    elif action == "pickfreq":
+        # Show interaction frequency picker
+        pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else item_id
+        await query.edit_message_text(
+            "How often do you want to be reminded to connect with them?",
+            reply_markup=interaction_freq_kb(pid),
+        )
+
+    elif action == "setfreq":
+        # partners:setfreq:{id}:{freq_key}
+        pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        freq_key = parts[3] if len(parts) > 3 else "flexible"
+        if pid and freq_key in INTERACTION_FREQUENCIES:
+            label = INTERACTION_FREQUENCIES[freq_key]
+            with db() as conn:
+                conn.execute(
+                    "UPDATE partners SET interaction_freq = ? WHERE id = ? AND chat_id = ?",
+                    (freq_key, pid, chat_id),
+                )
+            await query.edit_message_text(
+                f"✅ Interaction frequency: {label}",
+                reply_markup=partner_detail_kb(pid),
+            )
+
     elif action == "adddate":
         date_type = parts[2] if len(parts) > 2 else "custom"
         partner_id = int(parts[3]) if len(parts) > 3 else None
+
         context.user_data["pending_date_type"] = date_type
         context.user_data["pending_date_partner"] = partner_id
-        context.user_data["awaiting"] = AWAITING_DATE_VALUE
 
-        if date_type == "birthday":
-            await query.edit_message_text("When's their birthday? (MM-DD or full date)")
-        elif date_type == "anniversary":
-            await query.edit_message_text("Anniversary date? (YYYY-MM-DD or MM-DD)")
+        if date_type in ("birthday", "anniversary"):
+            # Use MM-DD picker for recurring dates
+            prefix = f"pdatepick:{partner_id}:{date_type}"
+            if date_type == "birthday":
+                msg = "🎂 Pick their birth month:"
+            else:
+                msg = "💕 Pick the anniversary month:"
+            await query.edit_message_text(msg, reply_markup=date_pick_mmdd_month_kb(prefix))
         else:
-            await query.edit_message_text("Date? (YYYY-MM-DD or MM-DD for recurring)")
+            # Full date picker for one-off dates
+            prefix = f"pdatepick:{partner_id}:{date_type}"
+            await query.edit_message_text(
+                "📅 Pick the date — choose a month:",
+                reply_markup=date_pick_month_kb(prefix),
+            )
 
     elif action == "schedule":
         # Show available days this week for a date
@@ -164,12 +226,34 @@ async def _show_partner_detail(query, chat_id, partner_id):
         await query.edit_message_text("Person not found.", reply_markup=back_to_menu_kb())
         return
 
-    emoji = partner["emoji"] or "💜"
+    # Get relationship-based emoji
+    try:
+        rel_type = partner["relationship_type"]
+    except (IndexError, KeyError):
+        rel_type = None
+    if rel_type and rel_type in RELATIONSHIP_TYPES:
+        emoji = RELATIONSHIP_TYPES[rel_type][0]
+        type_label = RELATIONSHIP_TYPES[rel_type][1]
+    else:
+        emoji = partner["emoji"] or "💜"
+        type_label = None
+
+    # Get interaction frequency
+    try:
+        freq = partner["interaction_freq"]
+    except (IndexError, KeyError):
+        freq = None
+    freq_label = INTERACTION_FREQUENCIES.get(freq, None)
+
     lines = [
         f"{emoji} {partner['name']}",
-        f"Target: ~{partner['target_dates_per_month']} dates/month",
-        "",
     ]
+    if type_label:
+        lines.append(f"Type: {type_label}")
+    if freq_label:
+        lines.append(f"Check-in: {freq_label}")
+    lines.append(f"Target: ~{partner['target_dates_per_month']} dates/month")
+    lines.append("")
 
     if dates:
         lines.append("Important dates:")
@@ -213,6 +297,7 @@ async def handle_partner_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text.strip()
 
     if awaiting == AWAITING_PARTNER_NAME:
+        # Create partner, then ask for relationship type
         with db() as conn:
             cursor = conn.execute(
                 "INSERT INTO partners (chat_id, name) VALUES (?, ?)",
@@ -220,9 +305,10 @@ async def handle_partner_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             partner_id = cursor.lastrowid
         context.user_data["awaiting"] = None
+        # Go straight to relationship type picker
         await update.message.reply_text(
-            f"Added {text} 💜",
-            reply_markup=partner_detail_kb(partner_id),
+            f"Added {text}.\n\nWhat's your relationship?",
+            reply_markup=relationship_type_kb(partner_id),
         )
         return True
 
@@ -260,3 +346,86 @@ async def handle_partner_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return True
 
     return False
+
+
+async def partner_date_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle pdatepick:* callbacks for the button-based date picker in partner flows."""
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    data = query.data
+
+    # Format: pdatepick:{partner_id}:{date_type}:{action}:{value}
+    parts = data.split(":")
+    partner_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    date_type = parts[2] if len(parts) > 2 else "custom"
+    action = parts[3] if len(parts) > 3 else ""
+    value = parts[4] if len(parts) > 4 else ""
+    prefix = f"pdatepick:{partner_id}:{date_type}"
+
+    if action == "cancel":
+        await query.edit_message_text("Cancelled.", reply_markup=partner_detail_kb(partner_id))
+
+    elif action == "mmdd_m":
+        # Month selected for MM-DD picker — show days
+        month = int(value) if value else int(parts[4]) if len(parts) > 4 else 1
+        await query.edit_message_text(
+            f"📅 Pick the day:",
+            reply_markup=date_pick_mmdd_day_kb(prefix, month),
+        )
+
+    elif action == "mmdd_d":
+        # Day selected for MM-DD picker — save it
+        mmdd = value  # e.g. "03-15"
+        recurring = 1
+        label = date_type.replace("_", " ").title()
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO partner_dates (partner_id, chat_id, date_type, label, date_value, recurring) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (partner_id, chat_id, date_type, label, mmdd, recurring),
+            )
+        await query.edit_message_text(
+            f"✅ Saved {label}: {mmdd}",
+            reply_markup=partner_detail_kb(partner_id),
+        )
+
+    elif action == "mmdd_back":
+        # Back to month picker
+        await query.edit_message_text(
+            "📅 Pick the month:",
+            reply_markup=date_pick_mmdd_month_kb(prefix),
+        )
+
+    elif action == "yr":
+        # Year changed — show months for that year
+        year = int(value) if value else date.today().year
+        await query.edit_message_text(
+            "📅 Pick a month:",
+            reply_markup=date_pick_month_kb(prefix, year),
+        )
+
+    elif action == "month":
+        # Month selected — show days
+        month = int(value) if value else 1
+        year_str = parts[5] if len(parts) > 5 else str(date.today().year)
+        year = int(year_str)
+        await query.edit_message_text(
+            "📅 Pick the day:",
+            reply_markup=date_pick_day_kb(prefix, month, year),
+        )
+
+    elif action == "day":
+        # Full date selected — save it
+        date_str = value  # e.g. "2026-04-15"
+        label = date_type.replace("_", " ").title()
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO partner_dates (partner_id, chat_id, date_type, label, date_value, recurring) "
+                "VALUES (?, ?, ?, ?, ?, 0)",
+                (partner_id, chat_id, date_type, label, date_str),
+            )
+        await query.edit_message_text(
+            f"✅ Saved {label}: {date_str}",
+            reply_markup=partner_detail_kb(partner_id),
+        )

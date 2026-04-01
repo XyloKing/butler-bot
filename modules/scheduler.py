@@ -24,6 +24,19 @@ from keyboards import (
 logger = logging.getLogger(__name__)
 
 
+def _is_feature_on(chat_id: int, feature_key: str) -> bool:
+    """Check if a feature toggle is enabled for this user.
+    Defaults to True (on) if no setting exists."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE chat_id = ? AND key = ?",
+            (chat_id, f"toggle_{feature_key}"),
+        ).fetchone()
+    if row:
+        return row["value"] == "1"
+    return True  # default on
+
+
 # ═══════════════════════════════════════════════════════
 # DAILY RESET (runs at midnight ET)
 # ═══════════════════════════════════════════════════════
@@ -53,7 +66,8 @@ async def afternoon_digest(context: ContextTypes.DEFAULT_TYPE):
 
     for user in users:
         try:
-            await _send_digest(context, user["chat_id"], "afternoon")
+            if _is_feature_on(user["chat_id"], "afternoon_digest"):
+                await _send_digest(context, user["chat_id"], "afternoon")
         except Exception as e:
             logger.error(f"Digest failed for {user['chat_id']}: {e}")
 
@@ -66,7 +80,8 @@ async def evening_checkin(context: ContextTypes.DEFAULT_TYPE):
 
     for user in users:
         try:
-            await _send_digest(context, user["chat_id"], "evening")
+            if _is_feature_on(user["chat_id"], "evening_checkin"):
+                await _send_digest(context, user["chat_id"], "evening")
         except Exception as e:
             logger.error(f"Evening check-in failed for {user['chat_id']}: {e}")
 
@@ -230,6 +245,15 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
         except (ValueError, TypeError):
             pass
 
+    # ── Quality-of-Life Suggestions (behavioral nudges) ─────
+    from modules.suggestions import get_suggestions
+    suggestions = get_suggestions(chat_id, time_of_day)
+    if suggestions:
+        lines.append("")
+        lines.append("💡 SUGGESTIONS:")
+        for s in suggestions:
+            lines.append(f"  {s}")
+
     if len(lines) <= 3:
         lines.append("Nothing urgent. You're good. 🫡")
 
@@ -249,6 +273,8 @@ async def med_nag(context: ContextTypes.DEFAULT_TYPE):
 
     for user in users:
         chat_id = user["chat_id"]
+        if not _is_feature_on(chat_id, "med_reminders"):
+            continue
         with db() as conn:
             untaken = conn.execute(
                 "SELECT * FROM medications WHERE chat_id = ? AND taken_today = 0",

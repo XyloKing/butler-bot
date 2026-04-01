@@ -65,8 +65,11 @@ async def handle_settings_day_select(update: Update, context: ContextTypes.DEFAU
                 (json.dumps(selected), chat_id),
             )
 
-        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        days_str = ", ".join(day_names[d] for d in selected)
+        day_names = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+        # Display in Sun-Sat order
+        sun_sat = [6, 0, 1, 2, 3, 4, 5]
+        ordered = [d for d in sun_sat if d in selected]
+        days_str = ", ".join(day_names[d] for d in ordered)
         week_label = "Week 1" if editing == "week1" else "Week 2"
 
         context.user_data.pop("settings_editing", None)

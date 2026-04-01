@@ -92,12 +92,14 @@ CREATE TABLE IF NOT EXISTS credentials (
 -- PARTNERS & DATES
 -- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS partners (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
-    name        TEXT    NOT NULL,
-    emoji       TEXT    DEFAULT '💜',
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id             INTEGER NOT NULL REFERENCES users(chat_id),
+    name                TEXT    NOT NULL,
+    emoji               TEXT    DEFAULT '💜',
+    relationship_type   TEXT,                           -- partner | friend | family | important
+    interaction_freq    TEXT    DEFAULT 'flexible',     -- daily | weekly | biweekly | monthly | flexible
     target_dates_per_month INTEGER DEFAULT 2,
-    created_at  TEXT    DEFAULT (datetime('now'))
+    created_at          TEXT    DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS partner_dates (
@@ -233,7 +235,22 @@ def _migrate_appointments():
                 conn.execute(sql)
             except sqlite3.OperationalError as e:
                 if "duplicate column" in str(e).lower():
-                    pass  # Already migrated
+                    pass
+                else:
+                    raise
+
+    # Partner columns migration
+    partner_migrations = [
+        "ALTER TABLE partners ADD COLUMN relationship_type TEXT",
+        "ALTER TABLE partners ADD COLUMN interaction_freq TEXT DEFAULT 'flexible'",
+    ]
+    with db() as conn:
+        for sql in partner_migrations:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" in str(e).lower():
+                    pass
                 else:
                     raise
 
