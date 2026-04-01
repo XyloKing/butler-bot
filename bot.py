@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.2.0-ux-overhaul"
+BOT_VERSION = "2.3.0-bulletproof"
 
 def _week_emoji_row(days: list[int]) -> str:
     """Build a Sun-Sat emoji row for schedule display."""
@@ -63,7 +63,7 @@ def _week_emoji_row(days: list[int]) -> str:
 
 async def _version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug: show which version is actually running."""
-    await update.message.reply_text(f"🔧 Butler Bot {BOT_VERSION}\nBuild: 2026-03-17T0620Z\nDeploy: nixpacks")
+    await update.message.reply_text(f"🔧 Butler Bot {BOT_VERSION}\nBuild: 2026-04-01T0420Z\nDeploy: nixpacks")
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
