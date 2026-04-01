@@ -511,50 +511,58 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
 
     # ── Skip individual item (used when user changes mind mid-entry) ─────────
     if action == "skip_item":
-        # Figure out what we were entering and bail back to the "another?" prompt
+        # Skip THIS item, not the whole section — ask "another?" or "want to add any?"
         awaiting = context.user_data.get("awaiting")
+        context.user_data["awaiting"] = None
         if awaiting == AWAITING_PARTNER_NAME:
-            context.user_data["awaiting"] = None
-            update_user(chat_id, onboard_step="bills_intro")
             await query.edit_message_text(
-                f"{onboard_progress_text('bills_intro')}\n\n"
-                "No problem. Next: bills and money.",
-                reply_markup=onboard_section_done_kb("bills_intro", back_section="partners"),
+                "Skipped. Want to add someone else?",
+                reply_markup=onboard_yes_no_kb("onboard:add_partners",
+                                               back_section="schedule_result"),
             )
         elif awaiting == AWAITING_BILL_NAME:
-            context.user_data["awaiting"] = None
-            update_user(chat_id, onboard_step="car_intro")
             await query.edit_message_text(
-                f"{onboard_progress_text('car_intro')}\n\n"
-                "Skipped. Next: car and vehicle stuff.",
-                reply_markup=onboard_section_done_kb("car_intro", back_section="bills"),
+                "Skipped. Want to add a bill?",
+                reply_markup=onboard_yes_no_kb("onboard:add_bills",
+                                               back_section="partners"),
             )
         elif awaiting == AWAITING_CAR_DESC:
-            context.user_data["awaiting"] = None
-            update_user(chat_id, onboard_step="creds_intro")
             await query.edit_message_text(
-                f"{onboard_progress_text('creds_intro')}\n\n"
-                "Skipped. Next: professional credentials.",
-                reply_markup=onboard_section_done_kb("creds_intro", back_section="car"),
+                "Skipped. Want to add a car/admin item?",
+                reply_markup=onboard_yes_no_kb("onboard:add_car",
+                                               back_section="bills"),
             )
         elif awaiting == AWAITING_CRED_NAME:
-            context.user_data["awaiting"] = None
-            update_user(chat_id, onboard_step="meds_intro")
             await query.edit_message_text(
-                f"{onboard_progress_text('meds_intro')}\n\n"
-                "Skipped. Last one: medications.",
-                reply_markup=onboard_section_done_kb("meds_intro", back_section="creds"),
+                "Skipped. Want to add a credential?",
+                reply_markup=onboard_yes_no_kb("onboard:add_creds",
+                                               back_section="car"),
             )
         elif awaiting == AWAITING_MED_NAME:
-            context.user_data["awaiting"] = None
-            await _finish_onboarding(query, chat_id)
-        else:
-            # Unknown skip context — just clear and continue
-            context.user_data["awaiting"] = None
             await query.edit_message_text(
-                "Skipped. Tap /menu to continue or use the buttons.",
-                reply_markup=main_menu_kb(),
+                "Skipped. Want to add a medication?",
+                reply_markup=onboard_yes_no_kb("onboard:add_meds",
+                                               back_section="creds"),
             )
+        elif awaiting == AWAITING_CUSTOM_SHIFT:
+            # Skip custom shift — use default and go to day picker
+            ob_data["shift_type"] = "custom"
+            update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="shift_days")
+            await query.edit_message_text(
+                f"{onboard_progress_text('shift_days')}\n\n"
+                "Which days do you usually work?\nTap to select, then hit Done.",
+                reply_markup=onboard_days_kb([]),
+            )
+        else:
+            # Unknown context — show where we are based on DB step
+            step = user["onboard_step"] if user else None
+            if step:
+                await _reshown_step(query, chat_id, step, context)
+            else:
+                await query.edit_message_text(
+                    "Skipped. Tap /menu to continue.",
+                    reply_markup=main_menu_kb(),
+                )
         return
 
     # ── Onboarding Date Picker (ob_date) ─────────────────────
