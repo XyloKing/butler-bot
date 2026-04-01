@@ -334,10 +334,13 @@ def creds_list_kb(creds: list[dict]) -> InlineKeyboardMarkup:
     rows = []
     for c in creds:
         from helpers import days_until, urgency_emoji
-        d = __import__("datetime").date.fromisoformat(c["expiry_date"])
-        urg = urgency_emoji(days_until(d))
+        try:
+            d = __import__("datetime").date.fromisoformat(c["expiry_date"])
+            urg = urgency_emoji(days_until(d))
+        except (ValueError, TypeError):
+            urg = "⚠️"
         rows.append([InlineKeyboardButton(
-            f"{urg} {c['name']} — exp {c['expiry_date']}",
+            f"{urg} {c['name']} — exp {c['expiry_date'] or 'unknown'}",
             callback_data=f"creds:detail:{c['id']}"
         )])
     rows.append([InlineKeyboardButton("➕ Add Credential", callback_data="creds:add")])
@@ -555,7 +558,6 @@ def onboard_shift_type_kb() -> InlineKeyboardMarkup:
     """Shift type picker with back button."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🌙 Nights (7p-7a)",  callback_data="onboard:shift:7p-7a")],
-        [InlineKeyboardButton("🌙 Nights (12p-12a)", callback_data="onboard:shift:12p-12a")],
         [InlineKeyboardButton("☀️ Days (7a-7p)",   callback_data="onboard:shift:7a-7p")],
         [InlineKeyboardButton("🔄 Rotating",         callback_data="onboard:shift:rotating")],
         [InlineKeyboardButton("✏️ Custom",            callback_data="onboard:shift:custom")],
@@ -707,4 +709,96 @@ def alter_schedule_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("———————————————", callback_data="noop")],
         [InlineKeyboardButton("📅 Edit Full Schedule", callback_data="settings:schedule")],
         [InlineKeyboardButton("⬅️ Back", callback_data="today:view")],
+    ])
+
+
+# ── APPOINTMENT TIME PICKER ──
+
+def time_picker_kb() -> InlineKeyboardMarkup:
+    """Button grid of common appointment times."""
+    times = [
+        ("8am", "08:00"), ("10am", "10:00"), ("12pm", "12:00"), ("2pm", "14:00"),
+        ("4pm", "16:00"), ("6pm", "18:00"), ("8pm", "20:00"), ("10pm", "22:00"),
+    ]
+    rows = []
+    row = []
+    for label, val in times:
+        row.append(InlineKeyboardButton(label, callback_data=f"appts:settime:{val}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⏭ No Time / All Day", callback_data="appts:skip_time")])
+    rows.append([InlineKeyboardButton("✏️ Type Custom Time", callback_data="appts:type_time")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ── MEDICATION FREQUENCY PICKER ──
+
+def frequency_picker_kb(module: str, item_id: int) -> InlineKeyboardMarkup:
+    """Button picker for medication frequency."""
+    options = [
+        ("Daily", "daily"),
+        ("Twice daily", "twice_daily"),
+        ("Weekly", "weekly"),
+        ("As needed", "as_needed"),
+    ]
+    rows = [[InlineKeyboardButton(label, callback_data=f"{module}:setfreq:{item_id}:{val}")] for label, val in options]
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"{module}:detail:{item_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ── BILL FREQUENCY PICKER ──
+
+def bill_frequency_picker_kb(item_id: int) -> InlineKeyboardMarkup:
+    """Button picker for bill payment frequency."""
+    options = [
+        ("Monthly", "monthly"),
+        ("Biweekly", "biweekly"),
+        ("Weekly", "weekly"),
+        ("Once", "once"),
+    ]
+    rows = [[InlineKeyboardButton(label, callback_data=f"bills:setfreq:{item_id}:{val}")] for label, val in options]
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"bills:detail:{item_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ── TARGET DATES PER MONTH PICKER ──
+
+def target_dates_picker_kb(item_id: int) -> InlineKeyboardMarkup:
+    """Button picker for target dates per month."""
+    options = [("1", 1), ("2", 2), ("3", 3), ("4+", 4)]
+    rows = [[InlineKeyboardButton(label, callback_data=f"partners:settarget:{item_id}:{val}")] for label, val in options]
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"partners:detail:{item_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ── DUE DAY PICKER (1-31 grid) ──
+
+def due_day_picker_kb() -> InlineKeyboardMarkup:
+    """Button grid for picking a due day of month (1-31)."""
+    rows = []
+    row = []
+    for d in range(1, 32):
+        row.append(InlineKeyboardButton(str(d), callback_data=f"bills:setdueday:{d}"))
+        if len(row) == 7:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⏭ Skip", callback_data="bills:skipdueday")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ── SETTINGS SHIFT TYPE PICKER ──
+
+def settings_shift_type_kb() -> InlineKeyboardMarkup:
+    """Shift type picker for Settings (updates existing record)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌙 Nights (7p-7a)",  callback_data="settings:set_shift_type:7p-7a")],
+        [InlineKeyboardButton("☀️ Days (7a-7p)",   callback_data="settings:set_shift_type:7a-7p")],
+        [InlineKeyboardButton("🔄 Rotating",         callback_data="settings:set_shift_type:rotating")],
+        [InlineKeyboardButton("✏️ Custom",            callback_data="settings:set_shift_type:custom")],
+        [InlineKeyboardButton("⬅️ Back",              callback_data="settings:schedule")],
     ])

@@ -67,6 +67,21 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from modules.field_editor import start_field_edit
         await start_field_edit(update, context, "meds", item_id, field)
 
+    elif action == "setfreq":
+        # meds:setfreq:{id}:{freq_val}
+        med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        freq_val = parts[3] if len(parts) > 3 else "daily"
+        if med_id:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE medications SET frequency = ? WHERE id = ? AND chat_id = ?",
+                    (freq_val, med_id, chat_id),
+                )
+            await query.edit_message_text(
+                f"✅ Frequency updated to: {freq_val.replace('_', ' ')}",
+                reply_markup=med_detail_kb(med_id, False),
+            )
+
     elif action == "delete":
         with db() as conn:
             med = conn.execute("SELECT name FROM medications WHERE id = ? AND chat_id = ?",

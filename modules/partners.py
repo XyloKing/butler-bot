@@ -92,6 +92,21 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=partner_detail_kb(pid),
             )
 
+    elif action == "settarget":
+        # partners:settarget:{id}:{val}
+        pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        val = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 2
+        if pid:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE partners SET target_dates_per_month = ? WHERE id = ? AND chat_id = ?",
+                    (val, pid, chat_id),
+                )
+            await query.edit_message_text(
+                f"✅ Target: {val} date{'s' if val != 1 else ''}/month",
+                reply_markup=partner_detail_kb(pid),
+            )
+
     elif action == "adddate":
         date_type = parts[2] if len(parts) > 2 else "custom"
         partner_id = int(parts[3]) if len(parts) > 3 else None
@@ -117,33 +132,33 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "schedule":
         # Show available days this week for a date
-        from helpers import next_payday, is_work_day
-        import json
+        from helpers import is_working
         with db() as conn:
             partner = conn.execute("SELECT * FROM partners WHERE id = ? AND chat_id = ?",
                                    (item_id, chat_id)).fetchone()
-            shift = conn.execute("SELECT * FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
-                                 (chat_id,)).fetchone()
 
         name = partner["name"] if partner else "them"
         d = today()
 
-        # Find free evenings this week
-        free_days = []
+        # Count dates this week for the 2/week cap
+        from modules.today import _dates_this_week
+        dates_this_week = _dates_this_week(chat_id, d)
+
+        # Find free evenings this week — uses is_working() so shift overrides are respected
         from datetime import timedelta
-        for i in range(7):
-            check = d + timedelta(days=i)
-            is_work = False
-            if shift and shift["week1_days"]:
-                w1 = json.loads(shift["week1_days"])
-                w2 = json.loads(shift["week2_days"] or "[]") or w1
-                anchor = shift["anchor_date"] or "2026-03-30"
-                is_work = is_work_day(check, anchor, w1, w2)
-            if not is_work:
-                free_days.append(check)
+        free_days = [
+            d + timedelta(days=i)
+            for i in range(7)
+            if not is_working(chat_id, d + timedelta(days=i))
+        ]
 
         if free_days:
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            header = f"Free days this week for {name}:\n(Tap to log a date)"
+            if dates_this_week >= 2:
+                header = f"⚠️ You already have {dates_this_week} dates this week (max 2).\n\nSchedule anyway?"
+            elif dates_this_week == 1:
+                header = f"📅 1/2 dates used this week for {name}:"
             rows = []
             for fd in free_days[:5]:
                 label = fd.strftime("%A %m/%d")
@@ -153,7 +168,7 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )])
             rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"partners:detail:{item_id}")])
             await query.edit_message_text(
-                f"Free days this week for {name}:\n(Tap to log a date)",
+                header,
                 reply_markup=InlineKeyboardMarkup(rows),
             )
         else:
@@ -165,6 +180,26 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "booked":
         partner_id = int(parts[2]) if len(parts) > 2 else None
         date_str = parts[3] if len(parts) > 3 else None
+
+        # Recovery day social guard
+        recovery_warning = ""
+        if date_str:
+            try:
+                from datetime import date as _date
+                from helpers import is_working, get_user_shift
+                from helpers import get_shift_info
+                booked_date = _date.fromisoformat(date_str)
+                day_before = booked_date - timedelta(days=1)
+                shift = get_user_shift(chat_id)
+                if shift and is_working(chat_id, day_before) and not is_working(chat_id, booked_date):
+                    # Day after a work shift = recovery day
+                    recovery_warning = (
+                        "\n\n⚠️ Recovery day — this is the day after your shift. "
+                        "Consider planning for 5pm or later."
+                    )
+            except Exception:
+                pass
+
         with db() as conn:
             partner = conn.execute("SELECT name FROM partners WHERE id = ?", (partner_id,)).fetchone()
             conn.execute(
@@ -174,7 +209,7 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         name = partner["name"] if partner else "them"
         await query.edit_message_text(
-            f"💜 Date with {name} on {date_str} — locked in.\n\nI'll remind you the day before.",
+            f"💜 Date with {name} on {date_str} — locked in.\n\nI'll remind you the day before.{recovery_warning}",
             reply_markup=partner_detail_kb(partner_id),
         )
 

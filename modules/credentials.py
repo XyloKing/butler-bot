@@ -18,8 +18,7 @@ AWAITING_CRED_NAME = "cred_name"
 AWAITING_CRED_EXPIRY = "cred_expiry"
 AWAITING_CRED_NUM = "cred_num"
 AWAITING_CRED_STATE = "cred_state"
-AWAITING_CRED_EDIT_FIELD = "cred_edit_field"
-AWAITING_CRED_EDIT_VALUE = "cred_edit_value"
+# Note: AWAITING_CRED_EDIT_FIELD and AWAITING_CRED_EDIT_VALUE removed — editing is now handled by field_editor
 
 
 async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,28 +153,6 @@ async def handle_cred_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"📅 When does {text} expire?",
             reply_markup=date_pick_month_kb("creddp"),
         )
-        return True
-
-    if awaiting == AWAITING_CRED_EDIT_VALUE:
-        cred_id = context.user_data.pop("edit_cred_id", None)
-        field = context.user_data.pop("edit_cred_field", "name")
-        context.user_data["awaiting"] = None
-
-        if field in ("ceu_required", "ceu_completed"):
-            try:
-                text = int(text)
-            except ValueError:
-                await update.message.reply_text("Need a number. Try again from the credential.")
-                return True
-        elif field == "expiry_date":
-            from modules.onboarding import _parse_date_loosely
-            text = _parse_date_loosely(text)
-
-        with db() as conn:
-            conn.execute(f"UPDATE credentials SET {field} = ? WHERE id = ? AND chat_id = ?",
-                         (text, cred_id, chat_id))
-
-        await update.message.reply_text("✅ Updated.", reply_markup=cred_detail_kb(cred_id))
         return True
 
     return False

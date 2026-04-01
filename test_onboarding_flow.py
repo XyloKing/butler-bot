@@ -454,8 +454,8 @@ class TestHappyPathFlow(unittest.TestCase):
         call_text = upd.message.reply_text.call_args[0][0]
         self.assertIn("relationship", call_text.lower())
 
-    def test_08_partner_type_saved_asks_another(self):
-        """partner_type handler saves type and asks 'another?'"""
+    def test_08_partner_type_saved_asks_frequency(self):
+        """partner_type handler saves type and asks about interaction frequency."""
         partner = _PARTNERS_STORE[0] if _PARTNERS_STORE else None
         if not partner:
             # Create one manually for this test
@@ -471,13 +471,13 @@ class TestHappyPathFlow(unittest.TestCase):
                                       ["onboard", "partner_type", "partner"], ctx))
         # relationship_type should be set
         self.assertEqual(partner["relationship_type"], "partner")
-        # pending_partner_id removed
+        # pending_partner_id removed (replaced by pending_freq_partner_id)
         user = _fake_get_user(1234)
         ob_after = json.loads(user["onboard_data"])
         self.assertNotIn("pending_partner_id", ob_after)
-        # Message asks another?
+        # Message now asks about frequency (Feature 10: ask frequency after type)
         call_text = query.edit_message_text.call_args[0][0]
-        self.assertIn("Another", call_text)
+        self.assertIn("often", call_text.lower())
 
     def test_09_finish_onboarding(self):
         """Finish action marks user as onboarded."""

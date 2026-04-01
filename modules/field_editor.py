@@ -84,6 +84,33 @@ async def start_field_edit(update: Update, context: ContextTypes.DEFAULT_TYPE,
         )
         return
 
+    # Medication frequency gets button picker
+    if field == "frequency" and module == "meds":
+        from keyboards import frequency_picker_kb
+        await query.edit_message_text(
+            "How often do you take this medication?",
+            reply_markup=frequency_picker_kb(module, item_id),
+        )
+        return
+
+    # Bill frequency gets button picker
+    if field == "frequency" and module == "bills":
+        from keyboards import bill_frequency_picker_kb
+        await query.edit_message_text(
+            "How often is this bill?",
+            reply_markup=bill_frequency_picker_kb(item_id),
+        )
+        return
+
+    # Target dates per month gets button picker
+    if field == "target_dates_per_month" and module == "partners":
+        from keyboards import target_dates_picker_kb
+        await query.edit_message_text(
+            "How many dates per month is your target?",
+            reply_markup=target_dates_picker_kb(item_id),
+        )
+        return
+
     prompt = FIELD_PROMPTS.get(field, f"New value for {field}?")
     context.user_data["awaiting"] = "field_edit"
     context.user_data["field_edit_module"] = module

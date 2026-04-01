@@ -339,9 +339,21 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, reply_markup=schedule_edit_kb())
 
     elif action == "edit_shift_type":
-        context.user_data["awaiting"] = "settings_shift_type"
+        from keyboards import settings_shift_type_kb
         await query.edit_message_text(
-            "What are your shift hours?\n(e.g. '7p-7a', '7a-7p', '3p-11p')"
+            "Pick your shift hours:",
+            reply_markup=settings_shift_type_kb(),
+        )
+
+    elif action == "set_shift_type":
+        shift_type = parts[2] if len(parts) > 2 else "7p-7a"
+        from database import db
+        with db() as conn:
+            conn.execute("UPDATE shifts SET shift_type = ? WHERE chat_id = ?", (shift_type, chat_id))
+        from keyboards import settings_kb
+        await query.edit_message_text(
+            f"✅ Shift updated to {shift_type}",
+            reply_markup=settings_kb(),
         )
 
     elif action == "edit_w1":

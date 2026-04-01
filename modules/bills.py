@@ -85,6 +85,79 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from modules.field_editor import start_field_edit
         await start_field_edit(update, context, "bills", item_id, field)
 
+    elif action == "setfreq":
+        # bills:setfreq:{id}:{freq_val}
+        bill_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        freq_val = parts[3] if len(parts) > 3 else "monthly"
+        if bill_id:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE bills SET frequency = ? WHERE id = ? AND chat_id = ?",
+                    (freq_val, bill_id, chat_id),
+                )
+            await query.edit_message_text(
+                f"✅ Frequency updated to: {freq_val}",
+                reply_markup=bill_detail_kb(bill_id, False),
+            )
+
+    elif action == "setdueday":
+        # bills:setdueday:{day} — used during add flow
+        day = int(parts[2]) if len(parts) > 2 else None
+        # Recover from context or DB
+        name = context.user_data.pop("new_bill_name_final", None)
+        amount = context.user_data.pop("new_bill_amount", None)
+        if not name:
+            with db() as conn:
+                n_row = conn.execute("SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_bill_name'", (chat_id,)).fetchone()
+                a_row = conn.execute("SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_bill_amount'", (chat_id,)).fetchone()
+                conn.execute("DELETE FROM settings WHERE chat_id = ? AND key IN ('pending_bill_name', 'pending_bill_amount')", (chat_id,))
+            name = n_row["value"] if n_row else "Bill"
+            if a_row and a_row["value"]:
+                try:
+                    amount = float(a_row["value"])
+                except ValueError:
+                    amount = None
+        context.user_data["awaiting"] = None
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO bills (chat_id, name, amount, due_day) VALUES (?, ?, ?, ?)",
+                (chat_id, name, amount, day),
+            )
+        amt_str = f" — {format_money(amount)}" if amount else ""
+        bills = await _get_bills(chat_id)
+        await query.edit_message_text(
+            f"✅ Added: {name}{amt_str}\n\nTap a bill for details:",
+            reply_markup=bills_list_kb(bills),
+        )
+
+    elif action == "skipdueday":
+        # No due day — save without it
+        name = context.user_data.pop("new_bill_name_final", None)
+        amount = context.user_data.pop("new_bill_amount", None)
+        if not name:
+            with db() as conn:
+                n_row = conn.execute("SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_bill_name'", (chat_id,)).fetchone()
+                a_row = conn.execute("SELECT value FROM settings WHERE chat_id = ? AND key = 'pending_bill_amount'", (chat_id,)).fetchone()
+                conn.execute("DELETE FROM settings WHERE chat_id = ? AND key IN ('pending_bill_name', 'pending_bill_amount')", (chat_id,))
+            name = n_row["value"] if n_row else "Bill"
+            if a_row and a_row["value"]:
+                try:
+                    amount = float(a_row["value"])
+                except ValueError:
+                    amount = None
+        context.user_data["awaiting"] = None
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO bills (chat_id, name, amount, due_day) VALUES (?, ?, ?, NULL)",
+                (chat_id, name, amount),
+            )
+        amt_str = f" — {format_money(amount)}" if amount else ""
+        bills = await _get_bills(chat_id)
+        await query.edit_message_text(
+            f"✅ Added: {name}{amt_str}\n\nTap a bill for details:",
+            reply_markup=bills_list_kb(bills),
+        )
+
 
 async def _show_bills_list(query, chat_id):
     bills = await _get_bills(chat_id)
@@ -197,8 +270,22 @@ async def handle_bill_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         context.user_data["new_bill_amount"] = amount
         context.user_data["new_bill_name_final"] = name
+        # Persist to DB so it survives restarts
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_bill_name', ?)",
+                (chat_id, name)
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_bill_amount', ?)",
+                (chat_id, str(amount) if amount is not None else "")
+            )
         context.user_data["awaiting"] = AWAITING_BILL_DUE
-        await update.message.reply_text("Due day of the month? (1-31, or 'skip')")
+        from keyboards import due_day_picker_kb
+        await update.message.reply_text(
+            f"Due day of the month for {name}?",
+            reply_markup=due_day_picker_kb(),
+        )
         return True
 
     if awaiting == AWAITING_BILL_DUE:

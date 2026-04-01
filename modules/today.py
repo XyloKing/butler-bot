@@ -15,13 +15,25 @@ from helpers import (
 from keyboards import today_actions_kb
 
 
+def _dates_this_week(chat_id, d):
+    """Count non-recurring partner dates scheduled this week (Sun-Sat)."""
+    start = d - timedelta(days=(d.weekday() + 1) % 7)  # Sunday
+    end = start + timedelta(days=7)
+    with db() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) as c FROM partner_dates WHERE chat_id = ? "
+            "AND date_value >= ? AND date_value < ? AND recurring = 0",
+            (chat_id, start.isoformat(), end.isoformat())
+        ).fetchone()
+    return count["c"] if count else 0
+
+
 async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat_id = query.message.chat_id if query else update.effective_chat.id
     user = get_user(chat_id)
 
     d = today()
-    greeting = _greeting(now().hour)
 
     # Shift status
     shift = get_user_shift(chat_id)
@@ -30,6 +42,7 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         shift_info = "🏠 Off"
 
+    greeting = _greeting(now().hour, shift_info)
     name = user["display_name"] if user else "Boss"
     lines = [f"{greeting}, {name}.", f"📅 {d.strftime('%A, %B %d')}", shift_info, ""]
 
@@ -137,6 +150,21 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"  • {n['content'][:60]}")
         lines.append("")
 
+    # Suggestions
+    from modules.suggestions import get_suggestions
+    suggestions = get_suggestions(chat_id, "afternoon")
+    if suggestions:
+        lines.append("")
+        lines.append("💡 SUGGESTIONS:")
+        for s in suggestions:
+            lines.append(f"  {s}")
+
+    # Date budget display
+    dates_count = _dates_this_week(chat_id, d)
+    if dates_count > 0 or shift:
+        lines.append(f"")
+        lines.append(f"📅 Dates this week: {dates_count}/2")
+
     if len(lines) <= 4:
         lines.append("Nothing urgent. Enjoy your day. 🫡")
 
@@ -152,7 +180,12 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Private helpers ──────────────────────────────────────
 
-def _greeting(hour: int) -> str:
+def _greeting(hour: int, shift_info: str = "") -> str:
+    """Shift-aware greeting. Checks shift status before falling back to hour-based."""
+    if shift_info and "Post-shift recovery" in shift_info:
+        return "Recovery day"
+    if shift_info and "Work" in shift_info:
+        return "Work tonight"
     if hour < 6:    return "Late night"
     if hour < 12:   return "Good morning"
     if hour < 17:   return "Good afternoon"

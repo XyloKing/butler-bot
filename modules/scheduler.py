@@ -40,8 +40,10 @@ def _onboarded_users():
 async def daily_reset(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running daily reset")
     with db() as conn:
+        # Intentional: reset ALL users at midnight. Single-timezone bot; all users share the same midnight.
         conn.execute("UPDATE medications SET taken_today = 0")
         if today().day == 1:
+            # Intentional: bill cycle resets globally on the 1st for all users.
             conn.execute("UPDATE bills SET paid_this_cycle = 0")
             logger.info("Monthly bill cycle reset")
 
@@ -347,7 +349,7 @@ async def _check_user_appointments(context, chat_id, d):
 
         # Follow-up for high priority
         if priority >= 3 and days_away == 0:
-            _maybe_followup(context, chat_id, appt, d)
+            await _maybe_followup(context, chat_id, appt, d)
 
 
 async def _maybe_followup(context, chat_id, appt, d):

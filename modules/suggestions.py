@@ -45,6 +45,11 @@ def get_suggestions(chat_id: int, time_of_day: str = "afternoon") -> list[str]:
     if conflict:
         suggestions.append(conflict)
 
+    # Recovery day social guard warning
+    recovery_warn = _recovery_social_warning(chat_id, d, time_of_day)
+    if recovery_warn:
+        suggestions.insert(0, recovery_warn)  # Put it at the top
+
     # Cap at 3 to avoid overwhelm
     return random.sample(suggestions, min(3, len(suggestions))) if len(suggestions) > 3 else suggestions
 
@@ -170,6 +175,31 @@ def _sleep_conflict(chat_id, d):
                 if hour < 14:
                     return (f"⚠️ You're working tonight but have \"{a['title']}\" "
                             f"at {a['event_time']} tomorrow. That's during your sleep window.")
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _recovery_social_warning(chat_id, d, time_of_day):
+    """Warn if today is a recovery day and there are social appointments before 5pm."""
+    worked_yesterday = is_working(chat_id, d - timedelta(days=1))
+    working_today = is_working(chat_id, d)
+    if not (worked_yesterday and not working_today):
+        return None  # Not a recovery day
+    # Check for social appointments today before 5pm
+    with db() as conn:
+        appts = conn.execute(
+            "SELECT * FROM appointments WHERE chat_id = ? AND event_date = ? "
+            "AND done = 0 AND category = 'social'",
+            (chat_id, d.isoformat()),
+        ).fetchall()
+    for a in appts:
+        if a["event_time"]:
+            try:
+                hour = int(a["event_time"].split(":")[0])
+                if hour < 17:
+                    return (f"🚫 Recovery day — \"{a['title']}\" is at {a['event_time']}. "
+                            "Social plans before 5pm on recovery days hit hard.")
             except (ValueError, TypeError):
                 pass
     return None

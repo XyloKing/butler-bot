@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
-from helpers import today, is_work_day, get_user_shift, ascii_week_calendar, days_until
+from helpers import today, is_working, ascii_week_calendar, days_until, get_user_shift
 from keyboards import back_to_menu_kb
 
 
@@ -36,14 +36,8 @@ async def _show_week(query, chat_id, offset=0):
     sun_offset = (d.weekday() + 1) % 7
     start = d - timedelta(days=sun_offset)
 
-    # Build work days list
-    shift = get_user_shift(chat_id)
-    work_days = []
-    if shift:
-        for i in range(7):
-            check = start + timedelta(days=i)
-            if is_work_day(check, shift["anchor"], shift["w1"], shift["w2"]):
-                work_days.append(check)
+    # Build work days list — uses is_working() so shift overrides are respected
+    work_days = [start + timedelta(days=i) for i in range(7) if is_working(chat_id, start + timedelta(days=i))]
 
     # Gather events for each day
     events: dict[date, list[str]] = {}
@@ -82,7 +76,9 @@ async def _show_week(query, chat_id, offset=0):
         for pd_row in pdates:
             target = _resolve_date(pd_row["date_value"], start)
             if target and start <= target < end:
-                emoji = pd_row.get("emoji") or "💜"
+                from keyboards import RELATIONSHIP_TYPES
+                rel = pd_row.get("relationship_type")
+                emoji = RELATIONSHIP_TYPES[rel][0] if rel and rel in RELATIONSHIP_TYPES else (pd_row.get("emoji") or "💜")
                 label = pd_row.get("label") or pd_row["date_type"]
                 events.setdefault(target, []).append(f"{emoji} {pd_row['partner_name']} — {label}")
 
@@ -105,7 +101,21 @@ async def _show_week(query, chat_id, offset=0):
             events.setdefault(adate, []).append(f"{cat_emoji} {a['title']}{time_str}")
 
     cal = ascii_week_calendar(start, work_days, events)
-    text = f"📆 Week of {start.strftime('%B %d')}\n\n```\n{cal}\n```"
+
+    # Rotation week indicator
+    week_label = f"📆 Week of {start.strftime('%B %d')}"
+    shift = get_user_shift(chat_id)
+    if shift:
+        try:
+            anchor = date.fromisoformat(shift["anchor"])
+            delta_days = (start - anchor).days
+            if delta_days >= 0:
+                week_num = (delta_days // 7) % 2 + 1
+                week_label += f" (Rotation Week {week_num})"
+        except (ValueError, TypeError):
+            pass
+
+    text = f"{week_label}\n\n```\n{cal}\n```"
 
     nav_row = [
         InlineKeyboardButton("◀ Prev Week", callback_data=f"week:prev:{offset}"),

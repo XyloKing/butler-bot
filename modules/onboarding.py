@@ -99,6 +99,16 @@ def validate_display_name(text: str) -> tuple[bool, str]:
     return True, result
 
 
+def _onboard_freq_kb(partner_id: int):
+    """Frequency keyboard for onboarding — uses onboard:partner_freq callbacks."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    from keyboards import INTERACTION_FREQUENCIES
+    rows = []
+    for key, label in INTERACTION_FREQUENCIES.items():
+        rows.append([InlineKeyboardButton(label, callback_data=f"onboard:partner_freq:{partner_id}:{key}")])
+    return InlineKeyboardMarkup(rows)
+
+
 def validate_bill_amount(text: str) -> tuple[bool, float | None, str]:
     """
     Validate a bill amount.
@@ -827,11 +837,37 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                     "UPDATE partners SET relationship_type = ? WHERE id = ? AND chat_id = ?",
                     (type_key, partner_id, chat_id),
                 )
+        # Store partner_id for the freq step under a different key, then remove the original
         ob_data.pop("pending_partner_id", None)
+        ob_data["pending_freq_partner_id"] = partner_id
+        ob_data["pending_partner_type"] = type_key
         update_user(chat_id, onboard_data=json.dumps(ob_data))
         emoji, label = RELATIONSHIP_TYPES.get(type_key, ("💜", "Person"))
+        # Ask about frequency
+        partner_id_for_kb = partner_id or 0
         await query.edit_message_text(
-            f"{emoji} Got it — saved as {label}.\n\nAnother person?",
+            f"{emoji} Got it — saved as {label}.\n\nHow often do you want to connect with them?",
+            reply_markup=_onboard_freq_kb(partner_id_for_kb),
+        )
+        return
+
+    if action == "partner_freq":
+        # onboard:partner_freq:{partner_id}:{freq_key}
+        partner_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        freq_key = parts[3] if len(parts) > 3 else "flexible"
+        from keyboards import INTERACTION_FREQUENCIES
+        if partner_id and freq_key in INTERACTION_FREQUENCIES:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE partners SET interaction_freq = ? WHERE id = ? AND chat_id = ?",
+                    (freq_key, partner_id, chat_id),
+                )
+        ob_data.pop("pending_partner_id", None)
+        ob_data.pop("pending_partner_type", None)
+        update_user(chat_id, onboard_data=json.dumps(ob_data))
+        freq_label = INTERACTION_FREQUENCIES.get(freq_key, freq_key)
+        await query.edit_message_text(
+            f"✅ Saved ({freq_label}).\n\nAnother person?",
             reply_markup=onboard_yes_no_kb("onboard:another_partner"),
         )
         return

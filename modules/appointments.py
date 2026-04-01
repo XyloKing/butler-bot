@@ -152,6 +152,19 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # User chose to skip adding a time
         await _save_appointment(update, context, event_time=None)
 
+    elif action == "settime":
+        # Time selected via button grid
+        time_val = parts[2] if len(parts) > 2 else None
+        context.user_data["awaiting"] = None
+        await _save_appointment(update, context, event_time=time_val)
+
+    elif action == "type_time":
+        # User wants to type a custom time
+        context.user_data["awaiting"] = AWAITING_APPT_TIME
+        await query.edit_message_text(
+            "Type a custom time (e.g. '2pm', '14:00', '9:30am'):"
+        )
+
     elif action == "skip_notes":
         # User chose to skip adding notes — now go to priority picker
         await _show_priority_picker(update, context, notes=None)
@@ -432,14 +445,10 @@ async def _handle_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
     context.user_data["appt_date"] = parsed
     context.user_data["awaiting"] = AWAITING_APPT_TIME
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏭ No Time / All Day", callback_data="appts:skip_time")],
-    ])
+    from keyboards import time_picker_kb
     await update.message.reply_text(
-        f"📅 Date: {parsed}\n\n"
-        "What time? (e.g. '2pm', '14:00', '9:30am')\n"
-        "Or tap below to skip.",
-        reply_markup=kb,
+        f"📅 Date: {parsed}\n\nWhat time?",
+        reply_markup=time_picker_kb(),
     )
     return True
 
@@ -809,12 +818,8 @@ async def appt_datepick_callback(update: Update, context: ContextTypes.DEFAULT_T
                 context.user_data["appt_category"] = c["value"]
         context.user_data["appt_date"] = date_str
         context.user_data["awaiting"] = AWAITING_APPT_TIME
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⏭ No Time / All Day", callback_data="appts:skip_time")],
-        ])
+        from keyboards import time_picker_kb
         await query.edit_message_text(
-            f"📅 Date: {date_str}\n\n"
-            "What time? (e.g. '2pm', '14:00', '9:30am')\n"
-            "Or tap below to skip.",
-            reply_markup=kb,
+            f"📅 Date: {date_str}\n\nWhat time?",
+            reply_markup=time_picker_kb(),
         )
