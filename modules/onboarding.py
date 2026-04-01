@@ -1016,21 +1016,12 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         update_user(chat_id, onboard_data=json.dumps(ob_data))
         context.user_data["awaiting"] = None
         logger.info(f"[ONBOARD] Name='{name}' saved, sending shift_type keyboard (chat={chat_id})")
-        try:
-            msg = await update.message.reply_text(
-                f"{onboard_progress_text('shift_type')}\n\n"
-                f"Nice to meet you, {name}.\n\n"
-                "What kind of shifts do you work?",
-                reply_markup=onboard_shift_type_kb(),
-            )
-            logger.info(f"[ONBOARD] Shift keyboard sent OK, msg_id={msg.message_id} (chat={chat_id})")
-        except Exception as e:
-            logger.error(f"[ONBOARD] FAILED to send shift keyboard: {e} (chat={chat_id})")
-            # Fallback: try sending without edit
-            await update.message.reply_text(
-                f"Nice to meet you, {name}. What kind of shifts do you work?",
-                reply_markup=onboard_shift_type_kb(),
-            )
+        await update.message.reply_text(
+            f"{onboard_progress_text('shift_type')}\n\n"
+            f"Nice to meet you, {name}.\n\n"
+            "What kind of shifts do you work?",
+            reply_markup=onboard_shift_type_kb(),
+        )
         return True
 
     # ── Custom Shift ─────────────────────────────────────────

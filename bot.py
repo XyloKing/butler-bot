@@ -493,8 +493,17 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # No module claimed it — show menu hint
     logger.warning(f"[TEXT-FALLBACK] No handler claimed text='{update.message.text.strip()[:30]}' "
                    f"awaiting={context.user_data.get('awaiting')} chat={update.effective_chat.id}")
+    # DEBUG: Tell the user exactly what happened so we can trace the bug
+    from database import get_user as _gu
+    _u = _gu(update.effective_chat.id)
+    _step = _u["onboard_step"] if _u else "no-user"
+    _ob = _u["onboarded"] if _u else "?"
     await update.message.reply_text(
-        "Tap /menu to get started, or use the buttons above. 🫡",
+        f"[DEBUG] No handler caught your text.\n"
+        f"awaiting={context.user_data.get('awaiting')}\n"
+        f"onboard_step={_step}\n"
+        f"onboarded={_ob}\n\n"
+        f"Tap /menu to get started.",
         reply_markup=main_menu_kb(),
     )
 
