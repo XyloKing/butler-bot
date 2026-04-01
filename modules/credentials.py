@@ -39,7 +39,10 @@ async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "add":
         context.user_data["awaiting"] = AWAITING_CRED_NAME
+        import logging
+        logging.getLogger(__name__).info(f"[CRED-ADD] Set awaiting={AWAITING_CRED_NAME} for chat={chat_id}")
         await query.edit_message_text("Credential name? (e.g. 'RRT License', 'BLS', 'ACLS')")
+
 
     elif action == "renewed":
         with db() as conn:

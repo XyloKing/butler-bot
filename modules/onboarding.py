@@ -1078,8 +1078,8 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     onboard_step = user["onboard_step"] if user else None
     logger.info(f"[ONBOARD-TEXT] chat={chat_id} awaiting={awaiting} onboard_step={onboard_step} text='{update.message.text.strip()[:30]}'")
 
-    if not awaiting or not str(awaiting).startswith("onboard"):
-        # Not in an onboarding awaiting state in memory — check DB
+    if not awaiting:
+        # No awaiting state at all — check DB for onboarding recovery
         if onboard_step and onboard_step in STEP_TO_AWAITING:
             # Recover: restore the awaiting state from DB
             awaiting = STEP_TO_AWAITING[onboard_step]
