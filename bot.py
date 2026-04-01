@@ -350,7 +350,6 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database import db
         with db() as conn:
             conn.execute("UPDATE shifts SET shift_type = ? WHERE chat_id = ?", (shift_type, chat_id))
-        from keyboards import settings_kb
         await query.edit_message_text(
             f"✅ Shift updated to {shift_type}",
             reply_markup=settings_kb(),
