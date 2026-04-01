@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 📒 Notes module.
 Quick-capture notes attachable to any entity.

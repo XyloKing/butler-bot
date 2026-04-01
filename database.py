@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 SQLite database layer – single file, zero config.
 """
@@ -7,9 +10,7 @@ from contextlib import contextmanager
 from config import DATABASE_PATH
 
 SCHEMA = """
--- ═══════════════════════════════════════════════════════
 -- USER PROFILES (multi-user support for sharing)
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS users (
     chat_id         INTEGER PRIMARY KEY,
     display_name    TEXT,
@@ -23,9 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- WORK SCHEDULE
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS shifts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
@@ -36,9 +35,7 @@ CREATE TABLE IF NOT EXISTS shifts (
     created_at  TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- BILLS
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS bills (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id         INTEGER NOT NULL REFERENCES users(chat_id),
@@ -54,9 +51,7 @@ CREATE TABLE IF NOT EXISTS bills (
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- CAR MAINTENANCE
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS car_events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
@@ -69,9 +64,7 @@ CREATE TABLE IF NOT EXISTS car_events (
     created_at  TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- PROFESSIONAL CREDENTIALS
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS credentials (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id         INTEGER NOT NULL REFERENCES users(chat_id),
@@ -88,9 +81,7 @@ CREATE TABLE IF NOT EXISTS credentials (
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- PARTNERS & DATES
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS partners (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id             INTEGER NOT NULL REFERENCES users(chat_id),
@@ -114,9 +105,7 @@ CREATE TABLE IF NOT EXISTS partner_dates (
     created_at  TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- MEDICATIONS
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS medications (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id         INTEGER NOT NULL REFERENCES users(chat_id),
@@ -129,9 +118,7 @@ CREATE TABLE IF NOT EXISTS medications (
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- NOTES (attachable to anything via 📒)
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS notes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
@@ -141,9 +128,7 @@ CREATE TABLE IF NOT EXISTS notes (
     created_at  TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- APPOINTMENTS / EVENTS
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS appointments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
@@ -155,9 +140,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     created_at  TEXT    DEFAULT (datetime('now'))
 );
 
--- ═══════════════════════════════════════════════════════
 -- REMINDER LOG (nag tracking)
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS reminder_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL,
@@ -167,9 +150,7 @@ CREATE TABLE IF NOT EXISTS reminder_log (
     nag_count   INTEGER DEFAULT 1
 );
 
--- ═══════════════════════════════════════════════════════
 -- SHIFT OVERRIDES (single-day exceptions)
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS shift_overrides (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL REFERENCES users(chat_id),
@@ -180,9 +161,7 @@ CREATE TABLE IF NOT EXISTS shift_overrides (
     UNIQUE(chat_id, override_date)
 );
 
--- ═══════════════════════════════════════════════════════
 -- KEY-VALUE SETTINGS (per user)
--- ═══════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS settings (
     chat_id INTEGER NOT NULL,
     key     TEXT    NOT NULL,

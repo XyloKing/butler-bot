@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 💜 People & Dates module.
 Partner tracking, birthdays, anniversaries, date scheduling.
@@ -134,10 +137,7 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if shift and shift["week1_days"]:
                 w1 = json.loads(shift["week1_days"])
                 w2 = json.loads(shift["week2_days"] or "[]") or w1
-                try:
-                    anchor = shift["anchor_date"] or "2026-03-30"
-                except (IndexError, KeyError):
-                    anchor = "2026-03-30"
+                anchor = shift["anchor_date"] or "2026-03-30"
                 is_work = is_work_day(check, anchor, w1, w2)
             if not is_work:
                 free_days.append(check)
@@ -227,10 +227,7 @@ async def _show_partner_detail(query, chat_id, partner_id):
         return
 
     # Get relationship-based emoji
-    try:
-        rel_type = partner["relationship_type"]
-    except (IndexError, KeyError):
-        rel_type = None
+    rel_type = dict(partner).get("relationship_type")
     if rel_type and rel_type in RELATIONSHIP_TYPES:
         emoji = RELATIONSHIP_TYPES[rel_type][0]
         type_label = RELATIONSHIP_TYPES[rel_type][1]
@@ -239,10 +236,7 @@ async def _show_partner_detail(query, chat_id, partner_id):
         type_label = None
 
     # Get interaction frequency
-    try:
-        freq = partner["interaction_freq"]
-    except (IndexError, KeyError):
-        freq = None
+    freq = dict(partner).get("interaction_freq")
     freq_label = INTERACTION_FREQUENCIES.get(freq, None)
 
     lines = [

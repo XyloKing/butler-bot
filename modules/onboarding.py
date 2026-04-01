@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 Onboarding flow — button-driven questionnaire.
 Collects: work schedule, partners, bills, car, credentials, meds.
@@ -28,7 +31,7 @@ from keyboards import (
 
 logger = logging.getLogger(__name__)
 
-# ─── Awaiting-state constants ────────────────────────────────────────────────
+# ── Awaiting-state constants ──
 AWAITING_NAME           = "onboard_name"
 AWAITING_PARTNER_NAME   = "onboard_partner_name"
 AWAITING_BILL_NAME      = "onboard_bill_name"
@@ -40,7 +43,7 @@ AWAITING_CRED_EXPIRY    = "onboard_cred_expiry"
 AWAITING_MED_NAME       = "onboard_med_name"
 AWAITING_CUSTOM_SHIFT   = "onboard_custom_shift"
 
-# ─── onboard_step → awaiting state mapping (for restart recovery) ────────────
+# ── onboard_step → awaiting state mapping (for restart recovery) ──
 STEP_TO_AWAITING = {
     "name":        AWAITING_NAME,
     "custom_shift": AWAITING_CUSTOM_SHIFT,

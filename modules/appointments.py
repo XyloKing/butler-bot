@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 📅 Appointments / Events module.
 Add, view, edit, delete appointments with date parsing.
@@ -67,9 +70,7 @@ PRIORITY_REMINDERS = {
 }
 
 
-# ═══════════════════════════════════════════════════════
-# CALLBACK ROUTER
-# ═══════════════════════════════════════════════════════
+# ── CALLBACK ROUTER ──
 
 async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route all appts:* callbacks."""
@@ -251,9 +252,7 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⏰ Snoozed for a couple hours.")
 
 
-# ═══════════════════════════════════════════════════════
-# LIST & DETAIL VIEWS
-# ═══════════════════════════════════════════════════════
+# ── LIST & DETAIL VIEWS ──
 
 async def _show_appts_list(query, chat_id, send_new=False):
     """Show all appointments for this user."""
@@ -293,10 +292,7 @@ async def _show_appt_detail(query, chat_id, appt_id):
     urg = urgency_emoji(delta)
 
     # Get new fields safely
-    try:
-        cat = appt["category"] or "other"
-    except (IndexError, KeyError):
-        cat = "other"
+    cat = appt.get("category") or "other"
     try:
         priority = appt["priority"] if appt["priority"] is not None else 2
     except (IndexError, KeyError):
@@ -339,10 +335,7 @@ async def _show_appt_detail_new(query, chat_id, appt_id):
     delta = days_until(event_date)
     urg = urgency_emoji(delta)
 
-    try:
-        cat = appt["category"] or "other"
-    except (IndexError, KeyError):
-        cat = "other"
+    cat = appt.get("category") or "other"
     try:
         priority = appt["priority"] if appt["priority"] is not None else 2
     except (IndexError, KeyError):
@@ -367,9 +360,7 @@ async def _show_appt_detail_new(query, chat_id, appt_id):
     await query.message.reply_text(text, reply_markup=appt_detail_kb(appt_id, appt["done"]))
 
 
-# ═══════════════════════════════════════════════════════
-# ADD FLOW — title → category → date → time → notes → priority → save
-# ═══════════════════════════════════════════════════════
+# ── ADD FLOW — title → category → date → time → notes → priority → save ──
 
 async def handle_appt_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Handle text input during appointment creation. Returns True if consumed."""
@@ -620,9 +611,7 @@ async def _save_with_priority(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(confirm_text, reply_markup=kb)
 
 
-# ═══════════════════════════════════════════════════════
-# EDIT PICKERS (category & priority — button-based, not text)
-# ═══════════════════════════════════════════════════════
+# ── EDIT PICKERS (category & priority — button-based, not text) ──
 
 async def _show_edit_category_picker(query, appt_id):
     """Show category picker for editing an existing appointment."""
@@ -657,9 +646,7 @@ async def _show_edit_priority_picker(query, appt_id):
     await query.edit_message_text("⚡ Pick priority level:", reply_markup=kb)
 
 
-# ═══════════════════════════════════════════════════════
-# HELPERS
-# ═══════════════════════════════════════════════════════
+# ── HELPERS ──
 
 def _get_appointments(chat_id, include_done=True, limit=30) -> list[dict]:
     """Get all appointments for a user, sorted by date."""

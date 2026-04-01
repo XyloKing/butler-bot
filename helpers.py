@@ -1,6 +1,7 @@
-"""
-Shared utilities: timezone, date math, formatting, work schedule logic.
-"""
+# Butler Bot — shared utilities
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
+"""Timezone, date math, formatting, work schedule logic."""
 from datetime import datetime, date, timedelta, time
 import json
 import zoneinfo
@@ -10,7 +11,7 @@ from config import TIMEZONE
 TZ = zoneinfo.ZoneInfo(TIMEZONE)
 
 
-# ─── Time ────────────────────────────────────────────────────
+# ── Time ──
 
 def now() -> datetime:
     return datetime.now(TZ)
@@ -24,7 +25,7 @@ def days_until(target: date) -> int:
     return (target - today()).days
 
 
-# ─── Friendly Formatting ────────────────────────────────────
+# ── Friendly Formatting ──
 
 def friendly_date(d: date) -> str:
     delta = days_until(d)
@@ -55,7 +56,7 @@ def format_money(amount: float | None) -> str:
     return f"${amount:,.2f}"
 
 
-# ─── Work Schedule ───────────────────────────────────────────
+# ── Work Schedule ──
 
 def is_work_day(d: date, anchor: str, week1: list[int], week2: list[int]) -> bool:
     """Check if date is a scheduled work day given user's rotation."""
@@ -97,22 +98,48 @@ def next_payday(payday_weekday: int = 4, from_date: date | None = None) -> date:
 
 
 def check_override(d: date, chat_id: int) -> int | None:
-    """
-    Check if there's a shift override for this date.
-    Returns 1 (working), 0 (off), or None (no override).
-    """
+    """Returns 1 (working), 0 (off), or None (no override)."""
     from database import db
     with db() as conn:
         row = conn.execute(
             "SELECT is_working FROM shift_overrides WHERE chat_id = ? AND override_date = ?",
             (chat_id, d.isoformat())
         ).fetchone()
-    if row:
-        return row["is_working"]
-    return None
+    return row["is_working"] if row else None
 
 
-# ─── ASCII Calendar ──────────────────────────────────────────
+def get_user_shift(chat_id: int) -> dict | None:
+    """Load a user's shift config. Returns dict with keys:
+    w1, w2, anchor, shift_type — or None if no shift set."""
+    from database import db
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+            (chat_id,)
+        ).fetchone()
+    if not row or not row["week1_days"]:
+        return None
+    return {
+        "w1": json.loads(row["week1_days"]),
+        "w2": json.loads(row["week2_days"] or "[]") or json.loads(row["week1_days"]),
+        "anchor": row["anchor_date"] or "2026-03-30",
+        "shift_type": row["shift_type"] or "7p-7a",
+    }
+
+
+def is_working(chat_id: int, d: date = None) -> bool:
+    """Full check: override first, then schedule rotation."""
+    d = d or today()
+    override = check_override(d, chat_id)
+    if override is not None:
+        return bool(override)
+    shift = get_user_shift(chat_id)
+    if not shift:
+        return False
+    return is_work_day(d, shift["anchor"], shift["w1"], shift["w2"])
+
+
+# ── ASCII Calendar ──
 
 def ascii_week_calendar(
     start: date,

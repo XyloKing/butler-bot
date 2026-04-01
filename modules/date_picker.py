@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 📅 Universal button-based date picker handler.
 Routes datepick:* callbacks for the field editor and other flows.
@@ -92,14 +95,9 @@ async def _return_to_detail(query, context, module, item_id, chat_id, send_new=F
             delta = _du(event_d)
             urg = _ue(delta)
             time_str = f"\nTime: {appt['event_time']}" if appt["event_time"] else ""
-            try:
-                cat = appt["category"] or "other"
-            except (IndexError, KeyError):
-                cat = "other"
-            try:
-                priority = appt["priority"] if appt["priority"] is not None else 2
-            except (IndexError, KeyError):
-                priority = 2
+            cat = dict(appt).get("category") or "other"
+            priority = dict(appt).get("priority")
+            priority = priority if priority is not None else 2
             cat_label = CATEGORIES.get(cat, cat)
             prio_label = PRIORITY_LABELS.get(priority, str(priority))
             text = (

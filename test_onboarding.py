@@ -97,9 +97,7 @@ from modules.onboarding import (
 )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# NAME VALIDATION TESTS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── NAME VALIDATION TESTS ──
 
 class TestNameValidation(unittest.TestCase):
     """Tests for validate_name() — generic name validator."""
@@ -230,9 +228,7 @@ class TestDisplayNameValidation(unittest.TestCase):
         self._assert_accepted("  Diego  ", "Diego")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# BILL AMOUNT VALIDATION TESTS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── BILL AMOUNT VALIDATION TESTS ──
 
 class TestBillAmountValidation(unittest.TestCase):
 
@@ -308,9 +304,7 @@ class TestBillAmountValidation(unittest.TestCase):
         self._assert_amount("1000000", 1_000_000.0)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DATE VALIDATION TESTS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── DATE VALIDATION TESTS ──
 
 class TestDateParsing(unittest.TestCase):
 
@@ -421,9 +415,7 @@ class TestDateValidation(unittest.TestCase):
         self.assertTrue(ok, f"'tomorrow' should be accepted: {err}")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SHIFT DESCRIPTION TESTS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── SHIFT DESCRIPTION TESTS ──
 
 class TestShiftDesc(unittest.TestCase):
 
@@ -450,9 +442,7 @@ class TestShiftDesc(unittest.TestCase):
         self.assertEqual(result, "7p-7a")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# RECOVERY / STEP_TO_AWAITING MAPPING TESTS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── RECOVERY / STEP_TO_AWAITING MAPPING TESTS ──
 
 class TestRecovery(unittest.TestCase):
     """
@@ -504,9 +494,7 @@ class TestRecovery(unittest.TestCase):
             )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# EDGE CASES
-# ══════════════════════════════════════════════════════════════════════════════
+# ── EDGE CASES ──
 
 class TestEdgeCases(unittest.TestCase):
 
@@ -563,9 +551,7 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(iso_str, expected)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════════
+# ── MAIN ──
 
 if __name__ == "__main__":
     loader = unittest.TestLoader()

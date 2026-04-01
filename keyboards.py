@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 All inline keyboard layouts in one place.
 Button-first UX — user should almost never type.
@@ -10,9 +13,7 @@ from datetime import date
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
-# ═══════════════════════════════════════════════════════
-# RELATIONSHIP TYPE EMOJI MAPPING
-# ═══════════════════════════════════════════════════════
+# ── RELATIONSHIP TYPE EMOJI MAPPING ──
 
 RELATIONSHIP_TYPES = {
     "partner":    ("💜", "Partner"),
@@ -30,9 +31,7 @@ INTERACTION_FREQUENCIES = {
 }
 
 
-# ═══════════════════════════════════════════════════════
-# BUTTON-BASED DATE PICKER (month → day → year)
-# ═══════════════════════════════════════════════════════
+# ── BUTTON-BASED DATE PICKER (month → day → year) ──
 
 def date_pick_month_kb(callback_prefix: str, year: int = None) -> InlineKeyboardMarkup:
     """Step 1: Pick a month. callback_prefix identifies the flow (e.g. 'datepick:appts:3')."""
@@ -123,9 +122,7 @@ def date_pick_mmdd_day_kb(callback_prefix: str, month: int) -> InlineKeyboardMar
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# MAIN MENU
-# ═══════════════════════════════════════════════════════
+# ── MAIN MENU ──
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -149,9 +146,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# BACK BUTTON (always available)
-# ═══════════════════════════════════════════════════════
+# ── BACK BUTTON (always available) ──
 
 def back_to_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -163,9 +158,7 @@ def back_button_row() -> list[InlineKeyboardButton]:
     return [InlineKeyboardButton("⬅️ Menu", callback_data="menu:main")]
 
 
-# ═══════════════════════════════════════════════════════
-# TODAY / TONIGHT
-# ═══════════════════════════════════════════════════════
+# ── TODAY / TONIGHT ──
 
 def today_actions_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -181,9 +174,7 @@ def today_actions_kb() -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# BILLS / MONEY
-# ═══════════════════════════════════════════════════════
+# ── BILLS / MONEY ──
 
 def bills_list_kb(bills: list[dict]) -> InlineKeyboardMarkup:
     """Show each bill as a button. Paid ones are struck-through."""
@@ -227,9 +218,7 @@ def bill_detail_kb(bill_id: int, is_paid: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# PARTNERS / DATES
-# ═══════════════════════════════════════════════════════
+# ── PARTNERS / DATES ──
 
 def partners_list_kb(partners: list[dict]) -> InlineKeyboardMarkup:
     rows = []
@@ -242,10 +231,7 @@ def partners_list_kb(partners: list[dict]) -> InlineKeyboardMarkup:
         if rel_type and rel_type in RELATIONSHIP_TYPES:
             emoji = RELATIONSHIP_TYPES[rel_type][0]
         else:
-            try:
-                emoji = p["emoji"] or "💜"
-            except (IndexError, KeyError):
-                emoji = "💜"
+            emoji = p.get("emoji") or "💜"
         rows.append([InlineKeyboardButton(
             f"{emoji} {p['name']}",
             callback_data=f"partners:detail:{p['id']}"
@@ -303,9 +289,7 @@ def interaction_freq_kb(partner_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# CAR / ADMIN
-# ═══════════════════════════════════════════════════════
+# ── CAR / ADMIN ──
 
 def car_list_kb(events: list[dict]) -> InlineKeyboardMarkup:
     rows = []
@@ -344,9 +328,7 @@ def car_detail_kb(event_id: int, is_done: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# CREDENTIALS
-# ═══════════════════════════════════════════════════════
+# ── CREDENTIALS ──
 
 def creds_list_kb(creds: list[dict]) -> InlineKeyboardMarkup:
     rows = []
@@ -390,9 +372,7 @@ def cred_detail_kb(cred_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# MEDICATIONS
-# ═══════════════════════════════════════════════════════
+# ── MEDICATIONS ──
 
 def meds_list_kb(meds: list[dict]) -> InlineKeyboardMarkup:
     rows = []
@@ -432,18 +412,13 @@ def med_detail_kb(med_id: int, taken: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# NOTES
-# ═══════════════════════════════════════════════════════
+# ── NOTES ──
 
 def notes_list_kb(notes: list[dict]) -> InlineKeyboardMarkup:
     rows = []
     for n in notes:
         preview = (n["content"][:30] + "…") if len(n["content"]) > 30 else n["content"]
-        try:
-            cat = n["category"] or ""
-        except (IndexError, KeyError):
-            cat = ""
+        cat = dict(n).get("category") or ""
         rows.append([InlineKeyboardButton(
             f"📒 {cat}: {preview}" if cat else f"📒 {preview}",
             callback_data=f"notes:detail:{n['id']}"
@@ -453,9 +428,7 @@ def notes_list_kb(notes: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# APPOINTMENTS
-# ═══════════════════════════════════════════════════════
+# ── APPOINTMENTS ──
 
 def appts_list_kb(appts: list[dict]) -> InlineKeyboardMarkup:
     """Show each appointment as a button with category emoji + priority indicator."""
@@ -469,16 +442,11 @@ def appts_list_kb(appts: list[dict]) -> InlineKeyboardMarkup:
         d = _dt.date.fromisoformat(a["event_date"])
         urg = urgency_emoji(days_until(d))
         # Get category emoji (safe for old rows without column)
-        try:
-            cat = a["category"] or "other"
-        except (IndexError, KeyError):
-            cat = "other"
+        cat = a.get("category") or "other"
         cat_emoji = CATEGORY_EMOJI.get(cat, "📋")
         # Get priority indicator
-        try:
-            prio = a["priority"] if a["priority"] is not None else 2
-        except (IndexError, KeyError):
-            prio = 2
+        prio = dict(a).get("priority")
+        prio = prio if prio is not None else 2
         prio_short = {0: "🔕", 1: "🔔", 2: "🔔🔔", 3: "🔔🔔🔔", 4: "🚨"}.get(prio, "")
 
         label = f"{done}{cat_emoji}{prio_short} {a['title']} — {a['event_date']}"
@@ -515,9 +483,7 @@ def appt_detail_kb(appt_id: int, is_done: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-# ═══════════════════════════════════════════════════════
-# CAPTURE / INBOX
-# ═══════════════════════════════════════════════════════
+# ── CAPTURE / INBOX ──
 
 def capture_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -532,9 +498,7 @@ def capture_menu_kb() -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# CONFIRMATION DIALOGS
-# ═══════════════════════════════════════════════════════
+# ── CONFIRMATION DIALOGS ──
 
 def confirm_delete_kb(category: str, item_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -545,9 +509,7 @@ def confirm_delete_kb(category: str, item_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# FOLLOW-UP ("Did you do the thing?")
-# ═══════════════════════════════════════════════════════
+# ── FOLLOW-UP ("Did you do the thing?") ──
 
 def followup_kb(category: str, item_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -559,9 +521,7 @@ def followup_kb(category: str, item_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# ONBOARDING
-# ═══════════════════════════════════════════════════════
+# ── ONBOARDING ──
 
 # Progress steps for onboarding sections (1-based display)
 # Map of section name → (step_number, label)
@@ -684,9 +644,7 @@ def onboard_skip_kb() -> InlineKeyboardMarkup:
     ])
 
 
-# ═══════════════════════════════════════════════════════
-# SETTINGS
-# ═══════════════════════════════════════════════════════
+# ── SETTINGS ──
 
 def settings_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([

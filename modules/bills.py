@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 💸 Money & Bills module.
 Payday-centered, aggressive nag-until-paid system.

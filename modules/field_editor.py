@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 Universal inline field editor.
 Any module can use this to edit any field on any table via buttons.
@@ -213,10 +216,7 @@ async def _send_detail_view(update, context, module, item_id, chat_id):
             delta = _du(event_d)
             urg = _ue(delta)
             time_str = f"\nTime: {appt['event_time']}" if appt["event_time"] else ""
-            try:
-                cat = appt["category"] or "other"
-            except (IndexError, KeyError):
-                cat = "other"
+            cat = appt.get("category") or "other"
             try:
                 priority = appt["priority"] if appt["priority"] is not None else 2
             except (IndexError, KeyError):

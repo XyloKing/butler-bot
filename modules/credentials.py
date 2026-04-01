@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 🎓 Professional Credentials module.
 Low-maintenance — only surfaces when something's coming due.

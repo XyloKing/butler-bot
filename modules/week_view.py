@@ -1,19 +1,18 @@
-"""
-📆 Week View module.
-ASCII-style calendar showing the week at a glance.
-"""
-import json
+# Butler Bot — Week View
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
+"""ASCII-style calendar showing the week at a glance. Sunday-first layout."""
+
 from datetime import date, timedelta
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
-from helpers import today, is_work_day, ascii_week_calendar, days_until
+from helpers import today, is_work_day, get_user_shift, ascii_week_calendar, days_until
 from keyboards import back_to_menu_kb
 
 
 async def week_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Route week:* callbacks."""
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
@@ -21,54 +20,39 @@ async def week_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = parts[1] if len(parts) > 1 else "view"
 
     if action == "view":
-        # week:view or week:view:offset
         offset = int(parts[2]) if len(parts) > 2 else 0
-        await _show_week(query, chat_id, offset=offset)
+        await _show_week(query, chat_id, offset)
     elif action == "next":
-        # week:next:current_offset — advance by 7
         current = int(parts[2]) if len(parts) > 2 else 0
-        await _show_week(query, chat_id, offset=current + 7)
+        await _show_week(query, chat_id, current + 7)
     elif action == "prev":
-        # week:prev:current_offset — go back by 7
         current = int(parts[2]) if len(parts) > 2 else 0
-        await _show_week(query, chat_id, offset=current - 7)
+        await _show_week(query, chat_id, current - 7)
 
 
 async def _show_week(query, chat_id, offset=0):
     d = today() + timedelta(days=offset)
-    # Start from Sunday of this week (Sunday-first layout)
-    # Python weekday: Mon=0 .. Sun=6. We want Sunday first.
-    sun_offset = (d.weekday() + 1) % 7  # days since last Sunday
+    # Sunday-first: find the most recent Sunday
+    sun_offset = (d.weekday() + 1) % 7
     start = d - timedelta(days=sun_offset)
 
-    # Get shift schedule
-    with db() as conn:
-        shift = conn.execute(
-            "SELECT * FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
-            (chat_id,)
-        ).fetchone()
-
+    # Build work days list
+    shift = get_user_shift(chat_id)
     work_days = []
-    if shift and shift["week1_days"]:
-        w1 = json.loads(shift["week1_days"])
-        w2 = json.loads(shift["week2_days"] or "[]") or w1
-        try:
-            anchor = shift["anchor_date"] or "2026-03-30"
-        except (IndexError, KeyError):
-            anchor = "2026-03-30"
+    if shift:
         for i in range(7):
             check = start + timedelta(days=i)
-            if is_work_day(check, anchor, w1, w2):
+            if is_work_day(check, shift["anchor"], shift["w1"], shift["w2"]):
                 work_days.append(check)
 
     # Gather events for each day
     events: dict[date, list[str]] = {}
+    end = start + timedelta(days=7)
 
     with db() as conn:
-        # Bills due this week
+        # Bills
         bills = conn.execute(
-            "SELECT * FROM bills WHERE chat_id = ? AND paid_this_cycle = 0",
-            (chat_id,)
+            "SELECT * FROM bills WHERE chat_id = ? AND paid_this_cycle = 0", (chat_id,)
         ).fetchall()
         for b in bills:
             if b["due_day"]:
@@ -80,102 +64,73 @@ async def _show_week(query, chat_id, offset=0):
         # Payday (Fridays)
         for i in range(7):
             check = start + timedelta(days=i)
-            if check.weekday() == 4:  # Friday
+            if check.weekday() == 4:
                 events.setdefault(check, []).append("💰 PAYDAY")
 
         # Car events
-        car = conn.execute(
-            "SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)
-        ).fetchall()
-        for e in car:
+        for e in conn.execute("SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)).fetchall():
             due = date.fromisoformat(e["due_date"])
-            if start <= due < start + timedelta(days=7):
+            if start <= due < end:
                 events.setdefault(due, []).append(f"🚗 {e['description']}")
 
         # Partner dates
         pdates = conn.execute("""
-            SELECT pd.*, p.name as partner_name, p.emoji
-            FROM partner_dates pd
-            JOIN partners p ON pd.partner_id = p.id
+            SELECT pd.*, p.name as partner_name, p.emoji, p.relationship_type
+            FROM partner_dates pd JOIN partners p ON pd.partner_id = p.id
             WHERE pd.chat_id = ?
         """, (chat_id,)).fetchall()
         for pd_row in pdates:
-            dv = pd_row["date_value"]
-            try:
-                if len(dv) == 5:  # MM-DD
-                    for year in [start.year, start.year + 1]:
-                        target = date(year, int(dv[:2]), int(dv[3:]))
-                        if start <= target < start + timedelta(days=7):
-                            emoji = pd_row["emoji"] or "💜"
-                            try:
-                                label = pd_row["label"] or pd_row["date_type"]
-                            except (IndexError, KeyError):
-                                label = pd_row["date_type"]
-                            events.setdefault(target, []).append(
-                                f"{emoji} {pd_row['partner_name']} — {label}"
-                            )
-                else:
-                    target = date.fromisoformat(dv)
-                    if start <= target < start + timedelta(days=7):
-                        emoji = pd_row["emoji"] or "💜"
-                        try:
-                            label = pd_row["label"] or pd_row["date_type"]
-                        except (IndexError, KeyError):
-                            label = pd_row["date_type"]
-                        events.setdefault(target, []).append(
-                            f"{emoji} {pd_row['partner_name']} — {label}"
-                        )
-            except (ValueError, TypeError):
-                pass
+            target = _resolve_date(pd_row["date_value"], start)
+            if target and start <= target < end:
+                emoji = pd_row.get("emoji") or "💜"
+                label = pd_row.get("label") or pd_row["date_type"]
+                events.setdefault(target, []).append(f"{emoji} {pd_row['partner_name']} — {label}")
 
-        # Credential expiries
-        creds = conn.execute(
-            "SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)
-        ).fetchall()
-        for c in creds:
+        # Credentials
+        for c in conn.execute("SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)).fetchall():
             exp = date.fromisoformat(c["expiry_date"])
-            if start <= exp < start + timedelta(days=7):
+            if start <= exp < end:
                 events.setdefault(exp, []).append(f"🎓 {c['name']} EXPIRES")
 
         # Appointments
         appts = conn.execute(
-            "SELECT * FROM appointments WHERE chat_id = ? AND done = 0 "
-            "AND event_date >= ? AND event_date < ?",
-            (chat_id, start.isoformat(), (start + timedelta(days=7)).isoformat()),
+            "SELECT * FROM appointments WHERE chat_id = ? AND done = 0 AND event_date >= ? AND event_date < ?",
+            (chat_id, start.isoformat(), end.isoformat()),
         ).fetchall()
+        from modules.appointments import CATEGORY_EMOJI
         for a in appts:
             adate = date.fromisoformat(a["event_date"])
             time_str = f" {a['event_time']}" if a["event_time"] else ""
-            # Show category emoji if available
-            try:
-                cat = a["category"] or "other"
-            except (IndexError, KeyError):
-                cat = "other"
-            from modules.appointments import CATEGORY_EMOJI
-            cat_emoji = CATEGORY_EMOJI.get(cat, "📅")
+            cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
             events.setdefault(adate, []).append(f"{cat_emoji} {a['title']}{time_str}")
 
-    # Build calendar
     cal = ascii_week_calendar(start, work_days, events)
+    text = f"📆 Week of {start.strftime('%B %d')}\n\n```\n{cal}\n```"
 
-    week_label = f"Week of {start.strftime('%B %d')}"
-    text = f"📆 {week_label}\n\n```\n{cal}\n```"
-
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     nav_row = [
         InlineKeyboardButton("◀ Prev Week", callback_data=f"week:prev:{offset}"),
         InlineKeyboardButton("▶ Next Week", callback_data=f"week:next:{offset}"),
     ]
-    today_row = []
-    if offset != 0:
-        today_row = [InlineKeyboardButton("📍 This Week", callback_data="week:view:0")]
     rows = [nav_row]
-    if today_row:
-        rows.append(today_row)
+    if offset != 0:
+        rows.append([InlineKeyboardButton("📍 This Week", callback_data="week:view:0")])
     rows.append([
         InlineKeyboardButton("📅 Alter Schedule", callback_data="alter:start"),
         InlineKeyboardButton("⬅️ Menu", callback_data="menu:main"),
     ])
-    kb = InlineKeyboardMarkup(rows)
 
-    await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+
+
+def _resolve_date(date_value, start):
+    """Resolve MM-DD or ISO date string to a date object."""
+    try:
+        if len(date_value) == 5:
+            for year in [start.year, start.year + 1]:
+                target = date(year, int(date_value[:2]), int(date_value[3:]))
+                if target >= start:
+                    return target
+        else:
+            return date.fromisoformat(date_value)
+    except (ValueError, TypeError):
+        return None

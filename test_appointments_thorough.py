@@ -130,9 +130,7 @@ def check(label, condition):
     logger.info(f"  {status} {label}")
 
 
-# ═══════════════════════════════════════════════════════
-# 1. DATE PARSER TESTS
-# ═══════════════════════════════════════════════════════
+# ── 1. DATE PARSER TESTS ──
 
 async def test_date_parser():
     """Test _parse_date_loosely with real human input."""
@@ -173,9 +171,7 @@ async def test_date_parser():
     check("29th of march 2026", _parse_date_loosely("29th of march 2026") == "2026-03-29")
 
 
-# ═══════════════════════════════════════════════════════
-# 2. DATA INTEGRITY TESTS
-# ═══════════════════════════════════════════════════════
+# ── 2. DATA INTEGRITY TESTS ──
 
 async def test_data_integrity():
     """Test that appointments land in the correct table with correct fields."""
@@ -316,9 +312,7 @@ async def test_category_edit():
     check("reminder_level set to none", a and a["reminder_level"] == "none")
 
 
-# ═══════════════════════════════════════════════════════
-# 3. REMINDER LOGIC TESTS
-# ═══════════════════════════════════════════════════════
+# ── 3. REMINDER LOGIC TESTS ──
 
 async def test_reminder_logic():
     """Test the reminder engine logic."""
@@ -537,9 +531,7 @@ async def test_existing_appts_still_work():
         check("old appt detail shows category", "Other" in text or "other" in text.lower())
 
 
-# ═══════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════
+# ── MAIN ──
 
 async def main():
     """Run all tests."""

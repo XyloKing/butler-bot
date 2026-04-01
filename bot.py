@@ -1,3 +1,6 @@
+# Butler Bot
+# (c) 2026 D.Escar — github.com/XyloKing/butler-bot
+
 """
 Butler Bot — main entry point.
 Telegram personal assistant for shift workers.
@@ -49,9 +52,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════
-# COMMAND HANDLERS (minimal — just /start and /menu)
-# ═══════════════════════════════════════════════════════
+# ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
 BOT_VERSION = "2.2.0-ux-overhaul"
 
@@ -84,9 +85,7 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ═══════════════════════════════════════════════════════
-# CALLBACK ROUTER — all button presses go here
-# ═══════════════════════════════════════════════════════
+# ── CALLBACK ROUTER — all button presses go here ──
 
 def _clear_input_state(context: ContextTypes.DEFAULT_TYPE):
     """Clear ALL text-input state from context.user_data.
@@ -472,9 +471,7 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ═══════════════════════════════════════════════════════
-# TEXT MESSAGE HANDLER — routes typed text to active module
-# ═══════════════════════════════════════════════════════
+# ── TEXT MESSAGE HANDLER — routes typed text to active module ──
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -507,9 +504,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ═══════════════════════════════════════════════════════
-# SCHEDULED JOBS
-# ═══════════════════════════════════════════════════════
+# ── SCHEDULED JOBS ──
 
 def setup_jobs(app):
     """Register all scheduled jobs."""
@@ -555,9 +550,7 @@ def setup_jobs(app):
     logger.info("Scheduled jobs registered")
 
 
-# ═══════════════════════════════════════════════════════
-# HEALTH CHECK (keeps Railway from killing the process)
-# ═══════════════════════════════════════════════════════
+# ── HEALTH CHECK (keeps Railway from killing the process) ──
 
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -575,9 +568,7 @@ def _start_health_server():
     server.serve_forever()
 
 
-# ═══════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════
+# ── MAIN ──
 
 def main():
     # Start health check FIRST so Railway sees us as healthy immediately
