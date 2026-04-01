@@ -498,6 +498,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # No module claimed it — show menu hint
+    logger.warning(f"[TEXT-FALLBACK] No handler claimed text='{update.message.text.strip()[:30]}' "
+                   f"awaiting={context.user_data.get('awaiting')} chat={update.effective_chat.id}")
     await update.message.reply_text(
         "Tap /menu to get started, or use the buttons above. 🫡",
         reply_markup=main_menu_kb(),

@@ -927,9 +927,9 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not user:
         return False
 
-    # ── Recovery from restart: infer awaiting from onboard_step ──────────────
     awaiting = context.user_data.get("awaiting")
     onboard_step = user["onboard_step"] if user else None
+    logger.info(f"[ONBOARD-TEXT] chat={chat_id} awaiting={awaiting} onboard_step={onboard_step} text='{update.message.text.strip()[:30]}'")
 
     if not awaiting or not str(awaiting).startswith("onboard"):
         # Not in an onboarding awaiting state in memory — check DB
@@ -961,13 +961,22 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         ob_data["name"] = name
         update_user(chat_id, onboard_data=json.dumps(ob_data))
         context.user_data["awaiting"] = None
-        logger.info(f"Name saved: {name}, advancing to shift_type (chat={chat_id})")
-        await update.message.reply_text(
-            f"{onboard_progress_text('shift_type')}\n\n"
-            f"Nice to meet you, {name}.\n\n"
-            "What kind of shifts do you work?",
-            reply_markup=onboard_shift_type_kb(),
-        )
+        logger.info(f"[ONBOARD] Name='{name}' saved, sending shift_type keyboard (chat={chat_id})")
+        try:
+            msg = await update.message.reply_text(
+                f"{onboard_progress_text('shift_type')}\n\n"
+                f"Nice to meet you, {name}.\n\n"
+                "What kind of shifts do you work?",
+                reply_markup=onboard_shift_type_kb(),
+            )
+            logger.info(f"[ONBOARD] Shift keyboard sent OK, msg_id={msg.message_id} (chat={chat_id})")
+        except Exception as e:
+            logger.error(f"[ONBOARD] FAILED to send shift keyboard: {e} (chat={chat_id})")
+            # Fallback: try sending without edit
+            await update.message.reply_text(
+                f"Nice to meet you, {name}. What kind of shifts do you work?",
+                reply_markup=onboard_shift_type_kb(),
+            )
         return True
 
     # ── Custom Shift ─────────────────────────────────────────
