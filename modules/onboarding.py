@@ -514,9 +514,10 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
 
     # ── Welcome ──────────────────────────────────────────────
     if action == "start":
-        update_user(chat_id, onboard_step="name", onboard_data=json.dumps({}))
+        # Reset onboarded flag so the full flow runs clean
+        update_user(chat_id, onboarded=0, onboard_step="name", onboard_data=json.dumps({}))
         context.user_data["awaiting"] = AWAITING_NAME
-        display = user["display_name"] if user else None
+        logger.info(f"Onboarding started for {chat_id}, awaiting={AWAITING_NAME}")
         await query.edit_message_text(
             f"{onboard_progress_text('name')}\n\n"
             "First — what should I call you?\n\n"
@@ -954,12 +955,13 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         ok, result = validate_display_name(text)
         if not ok:
             await update.message.reply_text(result)
-            return True  # Consumed but rejected — let them retry
+            return True
         name = result
         update_user(chat_id, display_name=name, onboard_step="shift_type")
         ob_data["name"] = name
         update_user(chat_id, onboard_data=json.dumps(ob_data))
         context.user_data["awaiting"] = None
+        logger.info(f"Name saved: {name}, advancing to shift_type (chat={chat_id})")
         await update.message.reply_text(
             f"{onboard_progress_text('shift_type')}\n\n"
             f"Nice to meet you, {name}.\n\n"
