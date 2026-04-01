@@ -160,9 +160,11 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # while settings_editing is active — don't clear in that case.
     # Also preserve state for in-progress appointment creation steps
     # that use buttons mid-flow (category, priority, skip).
+    # Only preserve state for settings day-picker (onboard:day:*) and appointment
+    # mid-flow buttons. Everything else clears stale state.
     _is_settings_day_pick = (
         context.user_data.get("settings_editing")
-        and data.startswith("onboard:")
+        and data.startswith("onboard:day:")  # ONLY day toggles, not onboard:start etc.
     )
     _is_appt_midflow = data.startswith("appts:") and any(
         data.startswith(f"appts:{a}")
@@ -175,8 +177,8 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prefix = data.split(":")[0]
 
-    # If user is editing settings and taps day-picker, route to settings handler
-    if context.user_data.get("settings_editing") and prefix == "onboard":
+    # Settings day-picker reuses onboard:day and onboard:days_done callbacks
+    if context.user_data.get("settings_editing") and data.startswith("onboard:day"):
         await handle_settings_day_select(update, context)
         return
 
