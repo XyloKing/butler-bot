@@ -286,13 +286,6 @@ async def handle_capture(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "➕ What are you adding?",
             reply_markup=capture_menu_kb(),
         )
-    elif action == "appointment":
-        # Legacy route — redirect to proper appointments module
-        context.user_data["awaiting"] = "appt_title"
-        await query.edit_message_text(
-            "📅 What's the appointment or event?\n"
-            "(e.g. 'Dentist', 'Railway trial ends', 'Dinner with Sam')"
-        )
 
 
 async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):

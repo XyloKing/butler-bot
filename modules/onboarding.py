@@ -26,7 +26,7 @@ from database import db, ensure_user, update_user, get_user
 from keyboards import (
     onboard_welcome_kb, onboard_shift_type_kb, onboard_days_kb,
     onboard_section_done_kb, onboard_yes_no_kb, onboard_skip_kb,
-    onboard_progress_text, main_menu_kb,
+    onboard_progress_text, main_menu_kb, RELATIONSHIP_TYPES,
 )
 
 logger = logging.getLogger(__name__)
@@ -270,6 +270,47 @@ def _check_duplicate(chat_id: int, table: str, name_col: str, name: str) -> bool
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ONBOARDING KEYBOARD HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _onboard_partner_type_kb(partner_id: int):
+    """Relationship-type picker with onboard:partner_type callback pattern."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    rows = []
+    for key, (emoji, label) in RELATIONSHIP_TYPES.items():
+        rows.append([InlineKeyboardButton(
+            f"{emoji} {label}",
+            callback_data=f"onboard:partner_type:{key}",
+        )])
+    return InlineKeyboardMarkup(rows)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHEDULE DISPLAY HELPER
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Sun-Sat display order and names (Python weekday: Mon=0 … Sun=6)
+_DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5]  # Sun first
+_DAY_ABBR = {6: "Sun", 0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat"}
+
+
+def _days_to_str(day_list: list[int]) -> str:
+    """Convert a list of weekday ints to comma-separated names in Sun-Sat order."""
+    day_set = set(day_list)
+    return ", ".join(_DAY_ABBR[d] for d in _DISPLAY_ORDER if d in day_set)
+
+
+def _format_weeks_summary(weeks: list[list[int]]) -> str:
+    """Format a list of week day-lists into a readable summary."""
+    if not weeks:
+        return "(no days saved)"
+    lines = []
+    for i, week in enumerate(weeks, 1):
+        lines.append(f"  Week {i}: {_days_to_str(week)}")
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # START COMMAND
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -317,10 +358,14 @@ async def _handle_back(query: CallbackQuery, chat_id: int,
         return True
 
     if target == "shift_type":
-        update_user(chat_id, onboard_step="shift_type")
-        context.user_data["awaiting"] = None
+        # Clear all schedule-related keys so re-entering starts fresh
         user = get_user(chat_id)
-        display = user["display_name"] or "you"
+        ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+        for key in ("week1_days", "week2_days", "weeks", "selected_days", "shift_type"):
+            ob_data.pop(key, None)
+        update_user(chat_id, onboard_step="shift_type", onboard_data=json.dumps(ob_data))
+        context.user_data["awaiting"] = None
+        display = user["display_name"] or "you" if user else "you"
         await query.edit_message_text(
             f"{onboard_progress_text('shift_type')}\n\n"
             f"OK {display}, what kind of shifts do you work?",
@@ -329,7 +374,7 @@ async def _handle_back(query: CallbackQuery, chat_id: int,
         return True
 
     if target == "schedule_result":
-        # Re-show schedule result — go back to partners_intro prompt
+        # Re-show partners_intro (after schedule was saved)
         update_user(chat_id, onboard_step="partners_intro")
         context.user_data["awaiting"] = None
         await query.edit_message_text(
@@ -582,24 +627,49 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
             )
             return
 
-        # Note if all 7 selected
-        all_7_note = ""
-        if len(selected) == 7:
-            all_7_note = " Every day? Respect. 💪"
+        # Save current week into the weeks list
+        weeks = ob_data.get("weeks", [])
+        weeks.append(sorted(selected))
+        ob_data["weeks"] = weeks
+        ob_data["selected_days"] = []
+        update_user(chat_id, onboard_data=json.dumps(ob_data))
 
-        if not ob_data.get("week1_days"):
-            # First pass = week 1
-            ob_data["week1_days"] = sorted(selected)
+        week_num = len(weeks)
+        all_7_note = " Every day? Respect. 💪" if len(selected) == 7 else ""
+        week_summary = _format_weeks_summary(weeks)
+        next_week_num = week_num + 1
+
+        await query.edit_message_text(
+            f"{week_summary}{all_7_note}\n\n"
+            f"Add Week {next_week_num} to the rotation?",
+            reply_markup=onboard_yes_no_kb("onboard:add_week",
+                                           back_section="shift_type"),
+        )
+        return
+
+    if action == "add_week":
+        answer = parts[2] if len(parts) > 2 else "no"
+
+        if answer == "yes":
             ob_data["selected_days"] = []
             update_user(chat_id, onboard_data=json.dumps(ob_data))
+            week_num = len(ob_data.get("weeks", [])) + 1
             await query.edit_message_text(
-                f"{all_7_note}\nGot it. Do you have a Week 2 rotation with different days?".strip(),
-                reply_markup=onboard_yes_no_kb("onboard:has_week2",
-                                               back_section="shift_type"),
+                f"{onboard_progress_text('shift_days')}\n\n"
+                f"Pick your Week {week_num} days:",
+                reply_markup=onboard_days_kb([]),
             )
         else:
-            # Second pass = week 2
-            ob_data["week2_days"] = sorted(selected)
+            # Done — compile and save
+            weeks = ob_data.get("weeks", [])
+            if not weeks:
+                # Fallback: shouldn't happen but guard
+                await query.answer("No days saved. Please pick your days.", show_alert=True)
+                return
+
+            # Back-compat: always store week1_days + week2_days for other modules
+            ob_data["week1_days"] = weeks[0]
+            ob_data["week2_days"] = weeks[1] if len(weeks) > 1 else weeks[0]
             ob_data.pop("selected_days", None)
             update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="partners_intro")
 
@@ -611,46 +681,11 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                      json.dumps(ob_data["week1_days"]), json.dumps(ob_data["week2_days"])),
                 )
 
-            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            w1 = ", ".join(day_names[d] for d in ob_data["week1_days"])
-            w2 = ", ".join(day_names[d] for d in ob_data["week2_days"])
+            week_summary = _format_weeks_summary(weeks)
             await query.edit_message_text(
                 f"{onboard_progress_text('partners_intro')}\n\n"
-                f"Schedule saved.{all_7_note}\n"
-                f"  Week 1: {w1}\n"
-                f"  Week 2: {w2}\n\n"
+                f"Schedule saved.\n{week_summary}\n\n"
                 "Next up: people and relationships.",
-                reply_markup=onboard_section_done_kb("partners_intro",
-                                                     back_section="shift_type"),
-            )
-        return
-
-    if action == "has_week2":
-        answer = parts[2] if len(parts) > 2 else "no"
-
-        if answer == "yes":
-            ob_data["selected_days"] = []
-            update_user(chat_id, onboard_data=json.dumps(ob_data))
-            await query.edit_message_text(
-                f"{onboard_progress_text('shift_days')}\n\nPick your Week 2 days:",
-                reply_markup=onboard_days_kb([]),
-            )
-        else:
-            ob_data["week2_days"] = ob_data.get("week1_days", [])
-            update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="partners_intro")
-
-            with db() as conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO shifts (chat_id, shift_type, week1_days, week2_days) "
-                    "VALUES (?, ?, ?, ?)",
-                    (chat_id, ob_data.get("shift_type", "custom"),
-                     json.dumps(ob_data["week1_days"]), json.dumps(ob_data["week2_days"])),
-                )
-
-            await query.edit_message_text(
-                f"{onboard_progress_text('partners_intro')}\n\n"
-                "Schedule saved — same days every week.\n\n"
-                "Next: people and relationships.",
                 reply_markup=onboard_section_done_kb("partners_intro",
                                                      back_section="shift_type"),
             )
@@ -687,6 +722,25 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                 reply_markup=onboard_section_done_kb("bills_intro",
                                                      back_section="partners"),
             )
+        return
+
+    if action == "partner_type":
+        # onboard:partner_type:{type_key}
+        type_key = parts[2] if len(parts) > 2 else "important"
+        partner_id = ob_data.get("pending_partner_id")
+        if partner_id and type_key in RELATIONSHIP_TYPES:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE partners SET relationship_type = ? WHERE id = ? AND chat_id = ?",
+                    (type_key, partner_id, chat_id),
+                )
+        ob_data.pop("pending_partner_id", None)
+        update_user(chat_id, onboard_data=json.dumps(ob_data))
+        emoji, label = RELATIONSHIP_TYPES.get(type_key, ("💜", "Person"))
+        await query.edit_message_text(
+            f"{emoji} Got it — saved as {label}.\n\nAnother person?",
+            reply_markup=onboard_yes_no_kb("onboard:another_partner"),
+        )
         return
 
     if action == "another_partner":
@@ -1011,14 +1065,19 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data["awaiting"] = None
             return True
         with db() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO partners (chat_id, name) VALUES (?, ?)",
                 (chat_id, name),
             )
+            partner_id = cursor.lastrowid
+        ob_data["pending_partner_id"] = partner_id
+        update_user(chat_id, onboard_data=json.dumps(ob_data))
         context.user_data["awaiting"] = None
+        # Show relationship type picker before asking "another?"
+        type_kb = _onboard_partner_type_kb(partner_id)
         await update.message.reply_text(
-            f"Added {name} 💜\n\nAnother person?",
-            reply_markup=onboard_yes_no_kb("onboard:another_partner"),
+            f"Added {name} 💜\n\nWhat\'s their relationship to you?",
+            reply_markup=type_kb,
         )
         return True
 

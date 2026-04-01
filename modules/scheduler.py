@@ -15,7 +15,7 @@ from helpers import (
     now, today, days_until, friendly_date, urgency_emoji, format_money,
     is_payday, next_payday, is_working, get_user_shift, get_shift_info,
 )
-from keyboards import main_menu_kb, today_actions_kb, followup_kb, meds_list_kb
+from keyboards import main_menu_kb, today_actions_kb, meds_list_kb
 
 logger = logging.getLogger(__name__)
 

@@ -39,7 +39,8 @@ async def car_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          (item_id, chat_id))
             event = conn.execute("SELECT description FROM car_events WHERE id = ?", (item_id,)).fetchone()
         desc = event["description"] if event else "Item"
-        await query.edit_message_text(f"✅ {desc} — done.", reply_markup=back_to_menu_kb())
+        await query.edit_message_text(f"✅ {desc} — done.")
+        await _show_car_list(query, chat_id, send_new=True)
 
     elif action == "undone":
         with db() as conn:
@@ -100,17 +101,14 @@ async def car_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Deleted.", reply_markup=back_to_menu_kb())
 
 
-async def _show_car_list(query, chat_id):
+async def _show_car_list(query, chat_id, send_new=False):
     events = _get_car_events(chat_id)
-    if not events:
-        await query.edit_message_text(
-            "🚗 No car/admin items yet.\n\nTap below to add one.",
-            reply_markup=car_list_kb([]),
-        )
-        return
-
-    text = "🚗 CAR / ADMIN\n\nTap an item for details:"
-    await query.edit_message_text(text, reply_markup=car_list_kb(events))
+    text = "🚗 CAR / ADMIN\n\nTap an item for details:" if events else "🚗 No car/admin items yet.\n\nTap below to add one."
+    kb = car_list_kb(events)
+    if send_new:
+        await query.message.reply_text(text, reply_markup=kb)
+    else:
+        await query.edit_message_text(text, reply_markup=kb)
 
 
 async def _show_car_detail(query, chat_id, event_id):

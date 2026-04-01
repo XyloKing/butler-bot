@@ -568,24 +568,19 @@ _SUN_SAT_ORDER = [6, 0, 1, 2, 3, 4, 5]
 _DAY_NAMES = {6: "Sun", 0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat"}
 
 
-def onboard_days_kb(selected: list[int] = None) -> InlineKeyboardMarkup:
-    """Multi-select weekday picker (Sun–Sat layout) with back button."""
+def onboard_days_kb(selected: list[int] = None, week_label: str = "") -> InlineKeyboardMarkup:
+    """Single-row weekday picker (Sun-Sat). 7 buttons in one line."""
     selected = selected or []
-    row1 = []  # Sun Mon Tue Wed
-    row2 = []  # Thu Fri Sat
-    for idx, day_num in enumerate(_SUN_SAT_ORDER):
-        name = _DAY_NAMES[day_num]
-        check = "✅ " if day_num in selected else ""
-        btn = InlineKeyboardButton(f"{check}{name}", callback_data=f"onboard:day:{day_num}")
-        if idx < 4:
-            row1.append(btn)
-        else:
-            row2.append(btn)
-    return InlineKeyboardMarkup([
-        row1, row2,
-        [InlineKeyboardButton("✔️ Done", callback_data="onboard:days_done")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="onboard:back:shift_type")],
-    ])
+    _ORDER = [6, 0, 1, 2, 3, 4, 5]  # Sun first
+    _SHORT = {6: "Su", 0: "Mo", 1: "Tu", 2: "We", 3: "Th", 4: "Fr", 5: "Sa"}
+    row = []
+    for day_num in _ORDER:
+        check = "✅" if day_num in selected else "⬜"
+        row.append(InlineKeyboardButton(f"{check}{_SHORT[day_num]}", callback_data=f"onboard:day:{day_num}"))
+    rows = [row]
+    rows.append([InlineKeyboardButton("✔️ Done", callback_data="onboard:days_done")])
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="onboard:back:shift_type")])
+    return InlineKeyboardMarkup(rows)
 
 
 def schedule_14day_grid_kb(w1_days: list[int], w2_days: list[int]) -> InlineKeyboardMarkup:

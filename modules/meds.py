@@ -49,7 +49,8 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          (item_id, chat_id))
             med = conn.execute("SELECT name FROM medications WHERE id = ?", (item_id,)).fetchone()
         name = med["name"] if med else "Med"
-        await query.edit_message_text(f"✅ {name} taken.", reply_markup=back_to_menu_kb())
+        await query.edit_message_text(f"✅ {name} taken.")
+        await _show_meds_list(query, chat_id, send_new=True)
 
     elif action == "untake":
         with db() as conn:
@@ -79,27 +80,25 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Removed.", reply_markup=back_to_menu_kb())
 
 
-async def _show_meds_list(query, chat_id):
+async def _show_meds_list(query, chat_id, send_new=False):
     meds = _get_meds(chat_id)
     if not meds:
-        await query.edit_message_text(
-            "💊 No medications tracked yet.\n\nTap below to add one.",
-            reply_markup=meds_list_kb([]),
-        )
-        return
-
-    taken = sum(1 for m in meds if m["taken_today"])
-    total = len(meds)
-
-    if taken == total:
-        status = "All taken today ✅"
-    elif taken == 0:
-        status = "⚠️ None taken yet"
+        text = "💊 No medications tracked yet.\n\nTap below to add one."
     else:
-        status = f"{taken}/{total} taken"
-
-    text = f"💊 MEDICATIONS\n{status}\n\nTap to mark taken or edit:"
-    await query.edit_message_text(text, reply_markup=meds_list_kb(meds))
+        taken = sum(1 for m in meds if m["taken_today"])
+        total = len(meds)
+        if taken == total:
+            status = "All taken today ✅"
+        elif taken == 0:
+            status = "⚠️ None taken yet"
+        else:
+            status = f"{taken}/{total} taken"
+        text = f"💊 MEDICATIONS\n{status}\n\nTap to mark taken or edit:"
+    kb = meds_list_kb(meds)
+    if send_new:
+        await query.message.reply_text(text, reply_markup=kb)
+    else:
+        await query.edit_message_text(text, reply_markup=kb)
 
 
 async def _show_med_detail(query, chat_id, med_id):

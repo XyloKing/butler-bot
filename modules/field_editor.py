@@ -42,6 +42,7 @@ FIELD_PROMPTS = {
     "title": "New title?",
     "event_date": "New date? (YYYY-MM-DD or 'March 29')",
     "event_time": "New time? (e.g. '2pm', '14:00', or 'skip' to clear)",
+    "notes": "Notes? (or 'skip' to clear)",
 }
 
 # Fields that need numeric parsing

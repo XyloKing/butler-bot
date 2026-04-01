@@ -47,7 +47,8 @@ async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          (item_id, chat_id))
             cred = conn.execute("SELECT name FROM credentials WHERE id = ?", (item_id,)).fetchone()
         name = cred["name"] if cred else "Credential"
-        await query.edit_message_text(f"✅ {name} marked as renewed.", reply_markup=back_to_menu_kb())
+        await query.edit_message_text(f"✅ {name} marked as renewed.")
+        await _show_creds_list(query, chat_id, send_new=True)
 
     elif action == "editfield":
         field = parts[3] if len(parts) > 3 else "name"
@@ -67,27 +68,20 @@ async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Deleted.", reply_markup=back_to_menu_kb())
 
 
-async def _show_creds_list(query, chat_id):
+async def _show_creds_list(query, chat_id, send_new=False):
     creds = _get_creds(chat_id)
     if not creds:
-        await query.edit_message_text(
-            "🎓 No credentials tracked yet.\n\nTap below to add one.",
-            reply_markup=creds_list_kb([]),
-        )
-        return
-
-    # Summary
-    d = today()
-    expiring_soon = 0
-    for c in creds:
-        if not c["renewed"]:
-            exp = date.fromisoformat(c["expiry_date"])
-            if days_until(exp) <= 90:
-                expiring_soon += 1
-
-    status = f"⚠️ {expiring_soon} expiring within 90 days" if expiring_soon else "All good ✅"
-    text = f"🎓 PROFESSIONAL CREDENTIALS\n{status}\n\nTap for details:"
-    await query.edit_message_text(text, reply_markup=creds_list_kb(creds))
+        text = "🎓 No credentials tracked yet.\n\nTap below to add one."
+    else:
+        d = today()
+        expiring_soon = sum(1 for c in creds if not c["renewed"] and days_until(date.fromisoformat(c["expiry_date"])) <= 90)
+        status = f"⚠️ {expiring_soon} expiring within 90 days" if expiring_soon else "All good ✅"
+        text = f"🎓 PROFESSIONAL CREDENTIALS\n{status}\n\nTap for details:"
+    kb = creds_list_kb(creds)
+    if send_new:
+        await query.message.reply_text(text, reply_markup=kb)
+    else:
+        await query.edit_message_text(text, reply_markup=kb)
 
 
 async def _show_cred_detail(query, chat_id, cred_id):

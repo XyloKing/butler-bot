@@ -127,6 +127,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🗑 Delete \"{appt['title']}\"?",
                 reply_markup=confirm_delete_kb("appts", appt_id),
             )
+        else:
+            await query.edit_message_text(
+                "Appointment not found.",
+                reply_markup=back_to_menu_kb(),
+            )
 
     elif action == "confirm_delete":
         appt_id = int(parts[2])
@@ -135,8 +140,7 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "DELETE FROM appointments WHERE id = ? AND chat_id = ?",
                 (appt_id, chat_id),
             )
-        await query.edit_message_text("🗑 Deleted.")
-        await _show_appts_list(query, chat_id, send_new=True)
+        await _show_appts_list(query, chat_id)
 
     elif action == "editfield":
         appt_id = int(parts[2])
@@ -231,11 +235,10 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "UPDATE appointments SET done = 1 WHERE id = ? AND chat_id = ?",
                 (appt_id, chat_id),
             )
-        await query.edit_message_text("✅ Marked done!")
+        await query.edit_message_text("✅ Marked done!", reply_markup=back_to_menu_kb())
 
     elif action == "remind_later":
-        # Just dismiss — the next hourly check will re-send if appropriate
-        await query.edit_message_text("⏰ Got it, I'll remind you later.")
+        await query.edit_message_text("⏰ Got it, I'll remind you later.", reply_markup=back_to_menu_kb())
 
     elif action == "remind_view":
         appt_id = int(parts[2])
@@ -249,7 +252,7 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "INSERT INTO reminder_log (chat_id, category, ref_id) VALUES (?, ?, ?)",
                 (chat_id, "appt_snooze", appt_id),
             )
-        await query.edit_message_text("⏰ Snoozed for a couple hours.")
+        await query.edit_message_text("⏰ Snoozed for a couple hours.", reply_markup=back_to_menu_kb())
 
 
 # ── LIST & DETAIL VIEWS ──
