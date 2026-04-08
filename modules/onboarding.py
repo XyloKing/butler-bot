@@ -1122,25 +1122,25 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not user:
         return False
 
-    awaiting = context.user_data.get("awaiting")
     onboard_step = user["onboard_step"] if user else None
-    logger.info(f"[ONBOARD-TEXT] chat={chat_id} awaiting={awaiting} onboard_step={onboard_step} text='{update.message.text.strip()[:30]}'")
+    awaiting = context.user_data.get("awaiting")
 
-    if not awaiting:
-        # No awaiting state at all — check DB for onboarding recovery
-        if onboard_step and onboard_step in STEP_TO_AWAITING:
-            # Recover: restore the awaiting state from DB
-            awaiting = STEP_TO_AWAITING[onboard_step]
+    # DB is always the source of truth. If DB says we're in a text-input step,
+    # use that — regardless of what memory says. This makes the bot fully
+    # restart-safe: no matter when Railway redeploys, the flow continues.
+    if onboard_step and onboard_step in STEP_TO_AWAITING:
+        db_awaiting = STEP_TO_AWAITING[onboard_step]
+        if awaiting != db_awaiting:
+            # Memory was wiped by a restart — recover silently
+            awaiting = db_awaiting
             context.user_data["awaiting"] = awaiting
-            logger.info(
-                f"Recovered onboard awaiting from DB: step={onboard_step} → {awaiting} "
-                f"(chat={chat_id})"
-            )
-        else:
-            return False  # Not in onboarding
+    elif not awaiting or not str(awaiting).startswith("onboard"):
+        return False  # Not in an onboarding text-input step
 
     if not str(awaiting).startswith("onboard"):
         return False
+
+    logger.info(f"[ONBOARD-TEXT] step={onboard_step} awaiting={awaiting} text='{update.message.text.strip()[:30]}' chat={chat_id}")
 
     text = update.message.text.strip()
     try:
