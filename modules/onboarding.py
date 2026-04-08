@@ -327,21 +327,23 @@ def _format_weeks_summary(weeks: list[list[int]]) -> str:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start — begin onboarding or show menu."""
     chat_id = update.effective_chat.id
-    name = update.effective_user.first_name
-    is_onboarded = ensure_user(chat_id, name)
+    tg_name = update.effective_user.first_name
+    is_onboarded = ensure_user(chat_id, tg_name)
 
     if is_onboarded:
+        user = get_user(chat_id)
+        display = user["display_name"] if user and user["display_name"] else "there"
         await update.message.reply_text(
-            f"Welcome back, {name}. 🫡\n\nWhat do you need?",
+            f"Welcome back, {display}. 🫡\n\nWhat do you need?",
             reply_markup=main_menu_kb(),
         )
     else:
         await update.message.reply_text(
-            f"Yo {name}. 👋\n\n"
+            "Hey there. 👋\n\n"
             "I'm your personal butler — I'll keep track of your bills, "
             "dates, car stuff, credentials, meds, and more.\n\n"
             "I work with buttons so you barely have to type. "
-            "Let's get you set up real quick.",
+            "Let's get you set up.",
             reply_markup=onboard_welcome_kb(),
         )
 
