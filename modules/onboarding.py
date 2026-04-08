@@ -28,6 +28,7 @@ from keyboards import (
     onboard_section_done_kb, onboard_yes_no_kb, onboard_skip_kb,
     onboard_progress_text, main_menu_kb, RELATIONSHIP_TYPES,
     date_pick_month_kb, date_pick_day_kb,
+    onboard_car_type_kb, onboard_bill_frequency_kb,
 )
 
 logger = logging.getLogger(__name__)
@@ -507,10 +508,17 @@ async def _reshown_step(query, chat_id: int, step: str, context):
             reply_markup=onboard_shift_type_kb(),
         )
     elif step in ("shift_days", "partners_intro", "bills_intro",
-                  "car_intro", "creds_intro", "meds_intro"):
-        await query.message.reply_text(
-            "Use the buttons to continue onboarding, or tap /start to restart."
-        )
+                  "bill_freq", "car_intro", "car_type", "car_date",
+                  "creds_intro", "meds_intro"):
+        if step == "car_type":
+            await query.message.reply_text(
+                f"{onboard_progress_text('car_intro')}\n\nWhat kind of car item?",
+                reply_markup=onboard_car_type_kb(),
+            )
+        else:
+            await query.message.reply_text(
+                "Use the buttons to continue onboarding, or tap /start to restart."
+            )
 
 
 async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
@@ -938,6 +946,29 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
             )
         return
 
+    if action == "bill_freq":
+        # onboard:bill_freq:{freq} — called after amount is entered
+        freq = parts[2] if len(parts) > 2 else "monthly"
+        freq_labels = {
+            "monthly": "monthly", "biweekly": "every 2 weeks",
+            "weekly": "weekly", "yearly": "yearly", "once": "one-time",
+        }
+        bill_name = ob_data.pop("pending_bill_name", "Unknown")
+        amount = ob_data.pop("pending_bill_amount", None)
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO bills (chat_id, name, amount, frequency) VALUES (?, ?, ?, ?)",
+                (chat_id, bill_name, amount, freq),
+            )
+        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_name")
+        freq_label = freq_labels.get(freq, freq)
+        amt_str = f" (${amount:,.0f})" if amount is not None else ""
+        await query.edit_message_text(
+            f"✅ {bill_name}{amt_str} — {freq_label}.\n\nAnother bill?",
+            reply_markup=onboard_yes_no_kb("onboard:another_bill"),
+        )
+        return
+
     if action == "another_bill":
         answer = parts[2] if len(parts) > 2 else "no"
         if answer == "yes":
@@ -969,12 +1000,12 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
     if action == "add_car":
         answer = parts[2] if len(parts) > 2 else "no"
         if answer == "yes":
-            update_user(chat_id, onboard_step="car_desc")
-            context.user_data["awaiting"] = AWAITING_CAR_DESC
+            # Use button picker — no more typed text for common car items
+            update_user(chat_id, onboard_step="car_type")
+            context.user_data["awaiting"] = None
             await query.edit_message_text(
-                f"{onboard_progress_text('car_intro')}\n\n"
-                "What's the item? (e.g. 'Oil change', 'State inspection')",
-                reply_markup=onboard_skip_kb(),
+                f"{onboard_progress_text('car_intro')}\n\nWhat kind of item?",
+                reply_markup=onboard_car_type_kb(),
             )
         else:
             update_user(chat_id, onboard_step="creds_intro")
@@ -985,14 +1016,44 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
             )
         return
 
-    if action == "another_car":
-        answer = parts[2] if len(parts) > 2 else "no"
-        if answer == "yes":
+    if action == "car_type":
+        # onboard:car_type:{type_key}
+        type_key = parts[2] if len(parts) > 2 else "custom"
+        type_labels = {
+            "oil_change": "Oil Change", "inspection": "Inspection",
+            "registration": "Registration", "insurance": "Insurance",
+            "tire_brake": "Tire / Brake",
+        }
+        if type_key == "custom":
+            # Custom needs typed name
             update_user(chat_id, onboard_step="car_desc")
             context.user_data["awaiting"] = AWAITING_CAR_DESC
             await query.edit_message_text(
                 f"{onboard_progress_text('car_intro')}\n\nWhat's the item?",
                 reply_markup=onboard_skip_kb(),
+            )
+        else:
+            desc = type_labels.get(type_key, type_key.replace("_", " ").title())
+            ob_data["pending_car_desc"] = desc
+            ob_data["pending_car_type"] = type_key
+            update_user(chat_id, onboard_step="car_date", onboard_data=json.dumps(ob_data))
+            context.user_data["awaiting"] = None
+            from keyboards import date_pick_month_kb
+            await query.edit_message_text(
+                f"📅 When is {desc} due?",
+                reply_markup=date_pick_month_kb("onboard:ob_date:car"),
+            )
+        return
+
+    if action == "another_car":
+        answer = parts[2] if len(parts) > 2 else "no"
+        if answer == "yes":
+            # Back to button picker
+            update_user(chat_id, onboard_step="car_type")
+            context.user_data["awaiting"] = None
+            await query.edit_message_text(
+                f"{onboard_progress_text('car_intro')}\n\nAnother item — what kind?",
+                reply_markup=onboard_car_type_kb(),
             )
         else:
             update_user(chat_id, onboard_step="creds_intro")
@@ -1248,18 +1309,15 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not ok:
             await update.message.reply_text(err)
             return True
-        bill_name = ob_data.pop("pending_bill_name", "Unknown")
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO bills (chat_id, name, amount) VALUES (?, ?, ?)",
-                (chat_id, bill_name, amount),
-            )
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_amount")
+        # Store amount, ask frequency before saving
+        ob_data["pending_bill_amount"] = amount
+        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_freq")
         context.user_data["awaiting"] = None
-        amt_str = f" (${amount:,.0f})" if amount is not None else ""
+        bill_name = ob_data.get("pending_bill_name", "this bill")
+        amt_str = f"${amount:,.0f}" if amount is not None else "amount saved"
         await update.message.reply_text(
-            f"Added {bill_name}{amt_str} 💸\n\nAnother bill?",
-            reply_markup=onboard_yes_no_kb("onboard:another_bill"),
+            f"{bill_name} — {amt_str}. How often is it due?",
+            reply_markup=onboard_bill_frequency_kb(),
         )
         return True
 

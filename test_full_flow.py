@@ -156,17 +156,18 @@ def test_full_onboarding():
     cb("onboard:add_bills:yes")
     txt("Mortgage")
     txt("$2000")
+    cb("onboard:bill_freq:monthly")  # NEW: frequency step
     cb("onboard:another_bill:no")
 
-    # Car: add oil change with date picker
+    # Car: add oil change with TYPE PICKER (button, not typed text)
     cb("onboard:car_intro")
     cb("onboard:add_car:yes")
-    txt("Oil change")
+    cb("onboard:car_type:oil_change")  # Button picker — no typing
     cb("onboard:ob_date:car:month:5:2026")
     cb("onboard:ob_date:car:day:2026-05-18")
     with db() as conn:
-        car = conn.execute("SELECT * FROM car_events WHERE chat_id=999 AND description='Oil change'").fetchone()
-    assert car, "Car event not saved!"
+        car = conn.execute("SELECT * FROM car_events WHERE chat_id=999 AND description='Oil Change'").fetchone()
+    assert car, f"Car event not saved!"
     cb("onboard:another_car:no")
 
     # Credentials: add one with date picker
@@ -499,14 +500,19 @@ def test_second_bill_add():
     cb("onboard:add_bills:yes")
     txt("Rent")
     txt("$1200")
-    # After first bill, onboard_step should be bill_amount (not car_intro)
+    # After amount, now shows frequency picker (bill_freq step)
     user = get_user(555)
-    assert user["onboard_step"] == "bill_amount", f"Expected bill_amount, got {user['onboard_step']}"
+    assert user["onboard_step"] == "bill_freq", f"Expected bill_freq, got {user['onboard_step']}"
+    cb("onboard:bill_freq:monthly")  # Pick frequency
+    # After frequency, asks 'Another bill?' and goes back to bill_name
+    user = get_user(555)
+    assert user["onboard_step"] == "bill_name", f"Expected bill_name, got {user['onboard_step']}"
     # Add second bill
     cb("onboard:another_bill:yes")
     assert ctx.user_data["awaiting"] == "onboard_bill_name"
     txt("Internet")
     txt("$80")
+    cb("onboard:bill_freq:monthly")
     # Verify both saved
     with db() as conn:
         bills = conn.execute("SELECT name FROM bills WHERE chat_id=555 ORDER BY name").fetchall()

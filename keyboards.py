@@ -639,6 +639,30 @@ def onboard_yes_no_kb(callback_prefix: str, back_section: str = None) -> InlineK
     return InlineKeyboardMarkup(rows)
 
 
+def onboard_car_type_kb() -> InlineKeyboardMarkup:
+    """Car item type picker for onboarding."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛢 Oil Change",    callback_data="onboard:car_type:oil_change")],
+        [InlineKeyboardButton("🔍 Inspection",    callback_data="onboard:car_type:inspection")],
+        [InlineKeyboardButton("📋 Registration",  callback_data="onboard:car_type:registration")],
+        [InlineKeyboardButton("🛱 Insurance",     callback_data="onboard:car_type:insurance")],
+        [InlineKeyboardButton("🔧 Tire / Brake",  callback_data="onboard:car_type:tire_brake")],
+        [InlineKeyboardButton("✏️ Custom item",  callback_data="onboard:car_type:custom")],
+        [InlineKeyboardButton("⏭ Skip",            callback_data="onboard:skip_item")],
+    ])
+
+
+def onboard_bill_frequency_kb() -> InlineKeyboardMarkup:
+    """Bill frequency picker for onboarding."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Every month",       callback_data="onboard:bill_freq:monthly")],
+        [InlineKeyboardButton("Every 2 weeks",     callback_data="onboard:bill_freq:biweekly")],
+        [InlineKeyboardButton("Every week",        callback_data="onboard:bill_freq:weekly")],
+        [InlineKeyboardButton("Once a year",       callback_data="onboard:bill_freq:yearly")],
+        [InlineKeyboardButton("One-time / varies", callback_data="onboard:bill_freq:once")],
+    ])
+
+
 def onboard_skip_kb() -> InlineKeyboardMarkup:
     """Skip button shown below text prompts so users have a way out."""
     return InlineKeyboardMarkup([
