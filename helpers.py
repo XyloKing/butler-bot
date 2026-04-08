@@ -34,7 +34,7 @@ def friendly_date(d: date) -> str:
     if delta == 1:
         return "tomorrow"
     if delta < 0:
-        return f"{abs(delta)}d OVERDUE"
+        return f"{abs(delta)}d — needs attention"
     if delta <= 7:
         return f"in {delta}d ({d.strftime('%A')})"
     return f"{d.strftime('%b %d, %Y')} ({delta}d)"
@@ -168,6 +168,32 @@ def is_working(chat_id: int, d: date = None) -> bool:
     if not shift:
         return False
     return is_work_day(d, shift["anchor"], shift["w1"], shift["w2"])
+
+
+# ── Shared Date Resolution ──
+
+def resolve_date(date_value, reference_date):
+    """Resolve a partner/recurring date (MM-DD or ISO) to a date object.
+    Returns None on bad data."""
+    try:
+        if len(date_value) == 5:  # MM-DD recurring
+            for year in [reference_date.year, reference_date.year + 1]:
+                target = date(year, int(date_value[:2]), int(date_value[3:]))
+                if target >= reference_date:
+                    return target
+        else:
+            return date.fromisoformat(date_value)
+    except (ValueError, TypeError):
+        return None
+
+
+def partner_emoji(pd_row):
+    """Get display emoji for a partner date row (or partner dict)."""
+    from keyboards import RELATIONSHIP_TYPES
+    rel = pd_row.get("relationship_type")
+    if rel and rel in RELATIONSHIP_TYPES:
+        return RELATIONSHIP_TYPES[rel][0]
+    return pd_row.get("emoji") or "💜"
 
 
 # ── ASCII Calendar ──

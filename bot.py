@@ -43,6 +43,7 @@ from modules.field_editor import handle_field_edit_text
 from modules.scheduler import (
     daily_reset, afternoon_digest, evening_checkin,
     med_nag, bill_nag, weekly_digest, appointment_reminder_check,
+    morning_heartbeat,
 )
 
 logging.basicConfig(
@@ -54,8 +55,8 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.4.0"
-BUILD_DATE = "2026-04-08"
+BOT_VERSION = "2.5.0"
+BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
     """Build a Sun-Sat emoji row for schedule display."""
@@ -233,11 +234,13 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle menu:main callback."""
+    import random
     query = update.callback_query
     await query.answer()
     # Ensure all input state is wiped when returning to menu
     _clear_input_state(context)
-    await query.edit_message_text("What do you need? 🫡", reply_markup=main_menu_kb())
+    greeting = random.choice(["What do you need? 🫡", "I'm here. What's up?", "Ready when you are."])
+    await query.edit_message_text(greeting, reply_markup=main_menu_kb())
 
 
 async def handle_alter_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -680,6 +683,9 @@ def setup_jobs(app):
         days=(WEEKLY_DIGEST_DAY,),
         name="weekly_digest",
     )
+
+    # Morning heartbeat at 3 PM ET (wake time for 7p-7a workers)
+    jq.run_daily(morning_heartbeat, time=dt_time(15, 0, tzinfo=tz), name="morning_heartbeat")
 
     # Appointment reminders — hourly during notification window (5 AM - 5 PM ET)
     for hour in range(5, 17):

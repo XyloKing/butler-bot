@@ -85,9 +85,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "add":
         context.user_data["awaiting"] = AWAITING_APPT_TITLE
+        cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
         await query.edit_message_text(
             "📅 What's the appointment or event?\n"
-            "(e.g. 'Dentist', 'Railway trial ends', 'Dinner with Sam')"
+            "(e.g. 'Dentist', 'Railway trial ends', 'Dinner with Sam')",
+            reply_markup=cancel_kb,
         )
 
     elif action == "detail":
@@ -95,7 +97,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_appt_detail(query, chat_id, appt_id)
 
     elif action == "done":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         with db() as conn:
             conn.execute(
                 "UPDATE appointments SET done = 1 WHERE id = ? AND chat_id = ?",
@@ -105,7 +111,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_appts_list(query, chat_id, send_new=True)
 
     elif action == "undone":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         with db() as conn:
             conn.execute(
                 "UPDATE appointments SET done = 0 WHERE id = ? AND chat_id = ?",
@@ -115,7 +125,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_appts_list(query, chat_id, send_new=True)
 
     elif action == "delete":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         from keyboards import confirm_delete_kb
         with db() as conn:
             appt = conn.execute(
@@ -134,7 +148,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     elif action == "confirm_delete":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         with db() as conn:
             conn.execute(
                 "DELETE FROM appointments WHERE id = ? AND chat_id = ?",
@@ -143,8 +161,12 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_appts_list(query, chat_id)
 
     elif action == "editfield":
-        appt_id = int(parts[2])
-        field = parts[3]
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
+        field = parts[3] if len(parts) > 3 else "title"
         from modules.field_editor import start_field_edit
         await start_field_edit(update, context, "appts", appt_id, field)
 
@@ -213,12 +235,20 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Edit category (from detail view) ───────────────
     elif action == "editcategory":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         await _show_edit_category_picker(query, appt_id)
 
     elif action == "setcategory":
-        appt_id = int(parts[2])
-        cat = parts[3]
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
+        cat = parts[3] if len(parts) > 3 else "other"
         with db() as conn:
             conn.execute(
                 "UPDATE appointments SET category = ? WHERE id = ? AND chat_id = ?",
@@ -229,12 +259,20 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Edit priority (from detail view) ───────────────
     elif action == "editpriority":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         await _show_edit_priority_picker(query, appt_id)
 
     elif action == "setpriority":
-        appt_id = int(parts[2])
-        prio = int(parts[3])
+        try:
+            appt_id = int(parts[2])
+            prio = int(parts[3])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         reminder_level = "none" if prio == 0 else "smart"
         with db() as conn:
             conn.execute(
@@ -247,7 +285,11 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Reminder action buttons ─────────────────────────
     elif action == "remind_done":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         with db() as conn:
             conn.execute(
                 "UPDATE appointments SET done = 1 WHERE id = ? AND chat_id = ?",
@@ -259,12 +301,19 @@ async def appts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⏰ Got it, I'll remind you later.", reply_markup=back_to_menu_kb())
 
     elif action == "remind_view":
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         await _show_appt_detail_new(query, chat_id, appt_id)
 
     elif action == "snooze2h":
-        # Log a "snooze" so the hourly check skips for ~2 hours
-        appt_id = int(parts[2])
+        try:
+            appt_id = int(parts[2])
+        except (ValueError, IndexError):
+            await query.edit_message_text("Something shifted. Tap below to continue.", reply_markup=back_to_menu_kb())
+            return
         with db() as conn:
             conn.execute(
                 "INSERT INTO reminder_log (chat_id, category, ref_id) VALUES (?, ?, ?)",

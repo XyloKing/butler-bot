@@ -5,7 +5,7 @@
 💊 Medications module.
 Daily check-ins, aggressive until confirmed taken.
 """
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
@@ -14,6 +14,13 @@ from keyboards import meds_list_kb, med_detail_kb, back_to_menu_kb, confirm_dele
 AWAITING_MED_NAME = "med_name"
 AWAITING_MED_DOSAGE = "med_dosage"
 AWAITING_MED_EDIT = "med_edit"
+
+STREAK_MESSAGES = {
+    3: "💊 3 days in a row. That's a real habit forming.",
+    7: "💊 One full week. Your body is thanking you.",
+    14: "💊 Two weeks straight. Seriously impressive.",
+    30: "💊 30 days. You're doing something most people can't.",
+}
 
 
 async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -33,23 +40,35 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "taken" or action == "all_taken":
         with db() as conn:
-            if action == "all_taken":
-                conn.execute("UPDATE medications SET taken_today = 1 WHERE chat_id = ?", (chat_id,))
-            else:
-                # From today view, mark all
-                conn.execute("UPDATE medications SET taken_today = 1 WHERE chat_id = ?", (chat_id,))
-        await query.edit_message_text(
-            "💊 All meds marked as taken. Nice work. 🫡",
-            reply_markup=back_to_menu_kb(),
-        )
+            conn.execute("UPDATE medications SET taken_today = 1 WHERE chat_id = ?", (chat_id,))
+        msg = "💊 All meds marked as taken. Nice work. 🫡"
+        streak_msg = _check_streak_celebration(chat_id)
+        if streak_msg:
+            msg += f"\n\n{streak_msg}"
+        await query.edit_message_text(msg, reply_markup=back_to_menu_kb())
 
     elif action == "take":
         with db() as conn:
             conn.execute("UPDATE medications SET taken_today = 1 WHERE id = ? AND chat_id = ?",
                          (item_id, chat_id))
             med = conn.execute("SELECT name FROM medications WHERE id = ?", (item_id,)).fetchone()
+            # Check if all meds are now taken
+            remaining = conn.execute(
+                "SELECT COUNT(*) as c FROM medications WHERE chat_id = ? AND taken_today = 0",
+                (chat_id,),
+            ).fetchone()
         name = med["name"] if med else "Med"
-        await query.edit_message_text(f"✅ {name} taken.")
+        if remaining and remaining["c"] == 0:
+            streak_msg = _check_streak_celebration(chat_id)
+            extra = f"\n\n{streak_msg}" if streak_msg else ""
+            await query.edit_message_text(f"✅ {name} taken. All meds done! 🫡{extra}")
+        else:
+            await query.edit_message_text(random.choice([
+                f"✅ {name} — done.",
+                f"✅ {name} marked. Good.",
+                f"💊 {name} — logged.",
+                f"✅ Got it — {name} taken.",
+            ]))
         await _show_meds_list(query, chat_id, send_new=True)
 
     elif action == "untake":
@@ -60,7 +79,8 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "add":
         context.user_data["awaiting"] = AWAITING_MED_NAME
-        await query.edit_message_text("Medication name?")
+        cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
+        await query.edit_message_text("Medication name?", reply_markup=cancel_kb)
 
     elif action == "editfield":
         field = parts[3] if len(parts) > 3 else "name"
@@ -92,7 +112,7 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "confirm_delete":
         with db() as conn:
             conn.execute("DELETE FROM medications WHERE id = ? AND chat_id = ?", (item_id, chat_id))
-        await query.edit_message_text("Removed.", reply_markup=back_to_menu_kb())
+        await query.edit_message_text(random.choice(["Gone.", "Removed.", "Deleted."]), reply_markup=back_to_menu_kb())
 
 
 async def _show_meds_list(query, chat_id, send_new=False):
@@ -105,7 +125,7 @@ async def _show_meds_list(query, chat_id, send_new=False):
         if taken == total:
             status = "All taken today ✅"
         elif taken == 0:
-            status = "⚠️ None taken yet"
+            status = "💊 Not yet — still here when you're ready"
         else:
             status = f"{taken}/{total} taken"
         text = f"💊 MEDICATIONS\n{status}\n\nTap to mark taken or edit:"
@@ -202,3 +222,16 @@ async def handle_med_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return True
 
     return False
+
+
+def _check_streak_celebration(chat_id: int) -> str | None:
+    """Return a celebration message if the user hit a streak milestone.
+    Only celebrates — never guilts on miss."""
+    with db() as conn:
+        user = conn.execute(
+            "SELECT med_streak FROM users WHERE chat_id = ?", (chat_id,)
+        ).fetchone()
+    if not user:
+        return None
+    streak = (user["med_streak"] or 0) + 1  # +1 because today counts but reset hasn't run yet
+    return STREAK_MESSAGES.get(streak)

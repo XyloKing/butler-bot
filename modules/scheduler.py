@@ -2,9 +2,10 @@
 # (c) 2026 D.Escar — github.com/XyloKing/butler-bot
 
 """Daily digests, med nags, bill nags, payday alerts, car/credential countdowns,
-shift-aware appointment reminders. All jobs respect user feature toggles."""
+shift-aware appointment reminders, morning heartbeat. All jobs respect user feature toggles."""
 
 import logging
+import random
 from datetime import date, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,6 +15,7 @@ from database import db
 from helpers import (
     now, today, days_until, friendly_date, urgency_emoji, format_money,
     is_payday, next_payday, is_working, get_user_shift, get_shift_info,
+    resolve_date,
 )
 from keyboards import main_menu_kb, today_actions_kb, meds_list_kb
 
@@ -35,11 +37,129 @@ def _onboarded_users():
         return conn.execute("SELECT * FROM users WHERE onboarded = 1").fetchall()
 
 
+# ── Morning heartbeat (3 PM ET = wake time for 7p-7a) ───
+
+async def morning_heartbeat(context: ContextTypes.DEFAULT_TYPE):
+    """Proactive good-morning message at the user's wake time."""
+    logger.info("Sending morning heartbeat")
+    for user in _onboarded_users():
+        chat_id = user["chat_id"]
+        if not _toggle_on(chat_id, "morning_heartbeat"):
+            continue
+        try:
+            await _send_heartbeat(context, chat_id)
+        except Exception as e:
+            logger.error(f"Heartbeat failed for {chat_id}: {e}")
+
+
+async def _send_heartbeat(context, chat_id):
+    d = today()
+
+    working_tonight = is_working(chat_id, d)
+    worked_yesterday = is_working(chat_id, d - timedelta(days=1))
+    is_transition = worked_yesterday and not working_tonight
+
+    urgent = _most_urgent_item(chat_id, d)
+
+    if is_transition:
+        opener = random.choice([
+            "Recovery day. Take it easy.",
+            "Easy one today — you earned it.",
+            "Off day after a shift. Rest first.",
+        ])
+    elif working_tonight:
+        opener = random.choice([
+            "Work night ahead.",
+            "Shift tonight. Let's see what's on.",
+            "You're on tonight.",
+        ])
+    else:
+        opener = random.choice([
+            "Day off. How's it looking?",
+            "Free day. Anything you want on your radar?",
+            "No shift today.",
+        ])
+
+    lines = [opener, ""]
+
+    if is_transition:
+        lines.append("Transition day heads up: keep tasks light if you can. Your sleep rhythm is adjusting.")
+        lines.append("")
+
+    if urgent:
+        lines.append(f"One thing worth knowing: {urgent}")
+        lines.append("")
+        lines.append("Say anything or tap below.")
+    else:
+        lines.append("Nothing urgent. You're ahead of it.")
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="\n".join(lines),
+        reply_markup=today_actions_kb(),
+    )
+
+
+def _most_urgent_item(chat_id: int, d: date) -> str | None:
+    """Returns a single sentence about the most urgent pending item."""
+    with db() as conn:
+        # Appointments in next 2 days
+        appt = conn.execute(
+            "SELECT title, event_date FROM appointments WHERE chat_id = ? AND done = 0 "
+            "AND event_date >= ? AND event_date <= ? ORDER BY event_date LIMIT 1",
+            (chat_id, d.isoformat(), (d + timedelta(days=2)).isoformat()),
+        ).fetchone()
+        if appt:
+            delta = (date.fromisoformat(appt["event_date"]) - d).days
+            when = "today" if delta == 0 else "tomorrow"
+            return f"{appt['title']} is {when}"
+
+        # Bills due in 3 days
+        bills = conn.execute(
+            "SELECT * FROM bills WHERE chat_id = ? AND paid_this_cycle = 0", (chat_id,)
+        ).fetchall()
+        for b in bills:
+            if b["due_day"]:
+                due = d.replace(day=min(b["due_day"], 28))
+                if due < d:
+                    due = (due.replace(month=due.month + 1) if due.month < 12
+                           else due.replace(year=due.year + 1, month=1))
+                if 0 <= (due - d).days <= 3:
+                    return f"{b['name']} is due {friendly_date(due)}"
+
+        # Meds not taken
+        untaken = conn.execute(
+            "SELECT name FROM medications WHERE chat_id = ? AND taken_today = 0 LIMIT 1",
+            (chat_id,),
+        ).fetchone()
+        if untaken:
+            return f"{untaken['name']} hasn't been taken yet today"
+
+    return None
+
+
 # ── Daily reset (midnight ET) ────────────────────────────
 
 async def daily_reset(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running daily reset")
     with db() as conn:
+        # Before resetting meds, check who completed all meds yesterday and update streaks
+        for user in _onboarded_users():
+            cid = user["chat_id"]
+            meds = conn.execute(
+                "SELECT * FROM medications WHERE chat_id = ?", (cid,)
+            ).fetchall()
+            if meds and all(m["taken_today"] for m in meds):
+                conn.execute(
+                    "UPDATE users SET med_streak = COALESCE(med_streak, 0) + 1 WHERE chat_id = ?",
+                    (cid,),
+                )
+            elif meds:
+                # Missed — reset streak silently (never guilt)
+                conn.execute(
+                    "UPDATE users SET med_streak = 0 WHERE chat_id = ?", (cid,),
+                )
+
         # Intentional: reset ALL users at midnight. Single-timezone bot; all users share the same midnight.
         conn.execute("UPDATE medications SET taken_today = 0")
         if today().day == 1:
@@ -101,7 +221,7 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
     if meds:
         untaken = [m for m in meds if not m["taken_today"]]
         if untaken:
-            lines.append(f"💊 MEDS NOT TAKEN: {', '.join(m['name'] for m in untaken)} ⚠️")
+            lines.append(f"💊 Meds not taken yet: {', '.join(m['name'] for m in untaken)}")
         else:
             lines.append("💊 Meds: All taken ✅")
         lines.append("")
@@ -139,7 +259,10 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
     # Car events (14 days)
     with db() as conn:
         for e in conn.execute("SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)).fetchall():
-            due = date.fromisoformat(e["due_date"])
+            try:
+                due = date.fromisoformat(e["due_date"])
+            except (ValueError, TypeError):
+                continue
             delta = days_until(due)
             if delta <= 14:
                 lines.append(f"{urgency_emoji(delta)} 🚗 {e['description']} — {friendly_date(due)}")
@@ -147,7 +270,10 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
     # Credentials (60 days)
     with db() as conn:
         for c in conn.execute("SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)).fetchall():
-            exp = date.fromisoformat(c["expiry_date"])
+            try:
+                exp = date.fromisoformat(c["expiry_date"])
+            except (ValueError, TypeError):
+                continue
             delta = days_until(exp)
             if delta <= 60:
                 lines.append(f"{urgency_emoji(delta)} 🎓 {c['name']} expires {friendly_date(exp)}")
@@ -171,7 +297,7 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
             WHERE pd.chat_id = ?
         """, (chat_id,)).fetchall()
     for pd_row in pdates:
-        target = _resolve_date(pd_row["date_value"], d)
+        target = resolve_date(pd_row["date_value"], d)
         if target and 0 <= days_until(target) <= 7:
             emoji = pd_row.get("emoji") or "💜"
             label = pd_row.get("label") or pd_row["date_type"]
@@ -188,7 +314,10 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
     if len(lines) <= 3:
         lines.append("Nothing urgent. You're good. 🫡")
 
-    await context.bot.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=today_actions_kb())
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n[...truncated — tap Menu to see more]"
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=today_actions_kb())
 
 
 # ── Med nag (every 2 hrs during notification window) ─────
@@ -207,7 +336,11 @@ async def med_nag(context: ContextTypes.DEFAULT_TYPE):
             names = ", ".join(m["name"] for m in untaken)
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"💊 Hey. You still haven't taken: {names}\n\nDon't make me ask again. 😤",
+                text=random.choice([
+                    f"💊 Still there when you're ready: {names}",
+                    f"💊 No rush — just a heads up: {names}",
+                    f"💊 Whenever you get a chance: {names}",
+                ]),
                 reply_markup=meds_list_kb([dict(m) for m in untaken]),
             )
 
@@ -231,7 +364,7 @@ async def bill_nag(context: ContextTypes.DEFAULT_TYPE):
             from keyboards import bills_list_kb
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"💰 It's payday and you still have {len(unpaid)} unpaid bills ({format_money(total)}).\n\nHandle your business. 💪",
+                text=f"💰 It's payday and you have {len(unpaid)} unpaid bills ({format_money(total)}).\n\nHere's what's outstanding whenever you're ready.",
                 reply_markup=bills_list_kb([dict(b) for b in unpaid]),
             )
 
@@ -276,13 +409,21 @@ async def _send_weekly(context, chat_id):
     approaching = []
     with db() as conn:
         for e in conn.execute("SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)).fetchall():
-            delta = days_until(date.fromisoformat(e["due_date"]))
+            try:
+                due = date.fromisoformat(e["due_date"])
+            except (ValueError, TypeError):
+                continue
+            delta = days_until(due)
             if delta <= 30:
-                approaching.append(f"🚗 {e['description']} — {friendly_date(date.fromisoformat(e['due_date']))}")
+                approaching.append(f"🚗 {e['description']} — {friendly_date(due)}")
         for c in conn.execute("SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)).fetchall():
-            delta = days_until(date.fromisoformat(c["expiry_date"]))
+            try:
+                exp = date.fromisoformat(c["expiry_date"])
+            except (ValueError, TypeError):
+                continue
+            delta = days_until(exp)
             if delta <= 90:
-                approaching.append(f"🎓 {c['name']} — expires {friendly_date(date.fromisoformat(c['expiry_date']))}")
+                approaching.append(f"🎓 {c['name']} — expires {friendly_date(exp)}")
     if approaching:
         lines.append("\n📋 Coming up:")
         lines += [f"  {item}" for item in approaching]
@@ -293,10 +434,16 @@ async def _send_weekly(context, chat_id):
         lines.append("\n📅 Appointments this week:")
         for a in week_appts:
             time_str = f" at {a['event_time']}" if a.get("event_time") else ""
-            lines.append(f"  • {a['title']}{time_str} — {friendly_date(date.fromisoformat(a['event_date']))}")
+            try:
+                lines.append(f"  • {a['title']}{time_str} — {friendly_date(date.fromisoformat(a['event_date']))}")
+            except (ValueError, TypeError):
+                lines.append(f"  • {a['title']}{time_str}")
 
     lines.append("\nHave a good week. 🫡")
-    await context.bot.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=main_menu_kb())
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n[...truncated — tap Menu to see more]"
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=main_menu_kb())
 
 
 # ── Appointment reminders (hourly) ────────────────────────
@@ -442,11 +589,4 @@ async def _send_followup_reminder(context, chat_id, appt):
     )
 
 
-def _resolve_date(date_value, d):
-    try:
-        if len(date_value) == 5:
-            target = date(d.year, int(date_value[:2]), int(date_value[3:]))
-            return target if target >= d else date(d.year + 1, int(date_value[:2]), int(date_value[3:]))
-        return date.fromisoformat(date_value)
-    except (ValueError, TypeError):
-        return None
+

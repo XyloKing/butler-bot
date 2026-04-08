@@ -151,7 +151,7 @@ async def _return_to_detail(query, context, module, item_id, chat_id, send_new=F
             bill = conn.execute("SELECT * FROM bills WHERE id = ?", (item_id,)).fetchone()
         if bill:
             from helpers import format_money
-            paid = "✅ PAID" if bill["paid_this_cycle"] else "⬜ UNPAID"
+            paid = "✅ Paid" if bill["paid_this_cycle"] else "⬜ unpaid"
             text = f"💸 {bill['name']}\nAmount: {format_money(bill['amount'])}\nStatus: {paid}"
             if send_new:
                 await query.message.reply_text(text, reply_markup=bill_detail_kb(item_id, bill["paid_this_cycle"]))

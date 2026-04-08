@@ -5,6 +5,7 @@
 💸 Money & Bills module.
 Payday-centered, aggressive nag-until-paid system.
 """
+import random
 from datetime import date
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -32,7 +33,10 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     parts = data.split(":")
     action = parts[1] if len(parts) > 1 else ""
-    item_id = int(parts[2]) if len(parts) > 2 else None
+    try:
+        item_id = int(parts[2]) if len(parts) > 2 else None
+    except ValueError:
+        item_id = None
 
     if action == "view":
         await _show_bills_list(query, chat_id)
@@ -47,7 +51,12 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bill = conn.execute("SELECT name FROM bills WHERE id = ?", (item_id,)).fetchone()
         name = bill["name"] if bill else "Bill"
         await query.edit_message_text(
-            f"✅ {name} marked PAID. Nice.\n\nOne less thing to worry about.",
+            random.choice([
+                f"✅ {name} — marked paid.",
+                f"✅ {name} handled.",
+                f"💸 {name} — paid. One less thing.",
+                f"✅ {name} marked.",
+            ]),
             reply_markup=bills_list_kb(await _get_bills(chat_id)),
         )
 
@@ -58,7 +67,9 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_bills_list(query, chat_id)
 
     elif action == "add":
-        await query.edit_message_text("What's the bill called? (e.g. 'Mortgage', 'PECO')")
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
+        await query.edit_message_text("What's the bill called? (e.g. 'Mortgage', 'PECO')", reply_markup=cancel_kb)
         context.user_data["awaiting"] = AWAITING_BILL_NAME
 
     elif action == "payday":
@@ -78,7 +89,7 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "confirm_delete":
         with db() as conn:
             conn.execute("DELETE FROM bills WHERE id = ? AND chat_id = ?", (item_id, chat_id))
-        await query.edit_message_text("Deleted.", reply_markup=back_to_menu_kb())
+        await query.edit_message_text(random.choice(["Gone.", "Removed.", "Deleted."]), reply_markup=back_to_menu_kb())
 
     elif action == "editfield":
         field = parts[3] if len(parts) > 3 else "name"
@@ -198,7 +209,7 @@ async def _show_bill_detail(query, chat_id, bill_id):
         await query.edit_message_text("Bill not found.", reply_markup=back_to_menu_kb())
         return
 
-    paid = "✅ PAID" if bill["paid_this_cycle"] else "⬜ UNPAID"
+    paid = "✅ Paid" if bill["paid_this_cycle"] else "⬜ unpaid"
     text = (
         f"{'─' * 25}\n"
         f"💸 {bill['name']}\n"

@@ -140,7 +140,10 @@ def _deadline_nudge(chat_id, d):
             "SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)
         ).fetchall()
     for c in creds:
-        delta = days_until(date.fromisoformat(c["expiry_date"]))
+        try:
+            delta = days_until(date.fromisoformat(c["expiry_date"]))
+        except (ValueError, TypeError):
+            continue
         if 7 < delta <= 30:
             return f"🎓 Heads up — {c['name']} expires in {delta} days. Got a renewal plan?"
 

@@ -6,8 +6,9 @@
 Partner tracking, birthdays, anniversaries, date scheduling.
 Now with relationship types, interaction frequency, and button-based date picker.
 """
+import random
 from datetime import date
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
@@ -41,7 +42,8 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_partner_detail(query, chat_id, item_id)
 
     elif action == "add":
-        await query.edit_message_text("What's their name?")
+        cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
+        await query.edit_message_text("What's their name?", reply_markup=cancel_kb)
         context.user_data["awaiting"] = AWAITING_PARTNER_NAME
 
     elif action == "picktype":
@@ -153,7 +155,6 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         if free_days:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             header = f"Free days this week for {name}:\n(Tap to log a date)"
             if dates_this_week >= 2:
                 header = f"⚠️ You already have {dates_this_week} dates this week (max 2).\n\nSchedule anyway?"
@@ -236,7 +237,7 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with db() as conn:
             conn.execute("DELETE FROM partner_dates WHERE partner_id = ? AND chat_id = ?", (item_id, chat_id))
             conn.execute("DELETE FROM partners WHERE id = ? AND chat_id = ?", (item_id, chat_id))
-        await query.edit_message_text("Removed.", reply_markup=back_to_menu_kb())
+        await query.edit_message_text(random.choice(["Gone.", "Removed.", "Deleted."]), reply_markup=back_to_menu_kb())
 
 
 async def _show_partners_list(query, chat_id):
@@ -339,8 +340,13 @@ async def handle_partner_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             partner_id = cursor.lastrowid
         context.user_data["awaiting"] = None
         # Go straight to relationship type picker
+        msg = random.choice([
+            f"Added {text}. 💜",
+            f"{text} is in. 💜",
+            f"Got {text}. 💜",
+        ])
         await update.message.reply_text(
-            f"Added {text}.\n\nWhat's your relationship?",
+            f"{msg}\n\nWhat's your relationship?",
             reply_markup=relationship_type_kb(partner_id),
         )
         return True

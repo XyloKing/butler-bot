@@ -38,9 +38,9 @@ async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "add":
         context.user_data["awaiting"] = AWAITING_CRED_NAME
-        import logging
-        logging.getLogger(__name__).info(f"[CRED-ADD] Set awaiting={AWAITING_CRED_NAME} for chat={chat_id}")
-        await query.edit_message_text("Credential name? (e.g. 'RRT License', 'BLS', 'ACLS')")
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
+        await query.edit_message_text("Credential name? (e.g. 'RRT License', 'BLS', 'ACLS')", reply_markup=cancel_kb)
 
 
     elif action == "renewed":
@@ -67,7 +67,8 @@ async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "confirm_delete":
         with db() as conn:
             conn.execute("DELETE FROM credentials WHERE id = ? AND chat_id = ?", (item_id, chat_id))
-        await query.edit_message_text("Deleted.", reply_markup=back_to_menu_kb())
+        import random
+        await query.edit_message_text(random.choice(["Gone.", "Removed.", "Deleted."]), reply_markup=back_to_menu_kb())
 
 
 async def _show_creds_list(query, chat_id, send_new=False):
@@ -76,7 +77,13 @@ async def _show_creds_list(query, chat_id, send_new=False):
         text = "🎓 No credentials tracked yet.\n\nTap below to add one."
     else:
         d = today()
-        expiring_soon = sum(1 for c in creds if not c["renewed"] and days_until(date.fromisoformat(c["expiry_date"])) <= 90)
+        expiring_soon = 0
+        for c in creds:
+            try:
+                if not c["renewed"] and days_until(date.fromisoformat(c["expiry_date"])) <= 90:
+                    expiring_soon += 1
+            except (ValueError, TypeError):
+                continue
         status = f"⚠️ {expiring_soon} expiring within 90 days" if expiring_soon else "All good ✅"
         text = f"🎓 PROFESSIONAL CREDENTIALS\n{status}\n\nTap for details:"
     kb = creds_list_kb(creds)
@@ -94,7 +101,11 @@ async def _show_cred_detail(query, chat_id, cred_id):
         await query.edit_message_text("Credential not found.", reply_markup=back_to_menu_kb())
         return
 
-    exp = date.fromisoformat(cred["expiry_date"])
+    try:
+        exp = date.fromisoformat(cred["expiry_date"])
+    except (ValueError, TypeError):
+        await query.edit_message_text("Bad date on this credential. Tap below to continue.", reply_markup=back_to_menu_kb())
+        return
     delta = days_until(exp)
     urg = urgency_emoji(delta)
 

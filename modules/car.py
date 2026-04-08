@@ -74,7 +74,9 @@ async def car_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         if event_type == "custom":
             context.user_data["awaiting"] = AWAITING_CAR_DESC
-            await query.edit_message_text("Description?")
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
+            await query.edit_message_text("Description?", reply_markup=cancel_kb)
         else:
             desc = type_labels.get(event_type, event_type)
             # Store in DB so it survives bot restarts
@@ -108,7 +110,8 @@ async def car_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "confirm_delete":
         with db() as conn:
             conn.execute("DELETE FROM car_events WHERE id = ? AND chat_id = ?", (item_id, chat_id))
-        await query.edit_message_text("Deleted.", reply_markup=back_to_menu_kb())
+        import random
+        await query.edit_message_text(random.choice(["Gone.", "Removed.", "Deleted."]), reply_markup=back_to_menu_kb())
 
 
 async def _show_car_list(query, chat_id, send_new=False):
@@ -129,7 +132,11 @@ async def _show_car_detail(query, chat_id, event_id):
         await query.edit_message_text("Item not found.", reply_markup=back_to_menu_kb())
         return
 
-    due = date.fromisoformat(event["due_date"])
+    try:
+        due = date.fromisoformat(event["due_date"])
+    except (ValueError, TypeError):
+        await query.edit_message_text("Bad date on this item. Tap below to continue.", reply_markup=back_to_menu_kb())
+        return
     delta = days_until(due)
     urg = urgency_emoji(delta)
 

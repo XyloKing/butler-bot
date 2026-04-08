@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database import db
-from helpers import today, is_working, ascii_week_calendar, days_until, get_user_shift
+from helpers import today, is_working, ascii_week_calendar, days_until, get_user_shift, resolve_date
 from keyboards import back_to_menu_kb
 
 
@@ -63,7 +63,10 @@ async def _show_week(query, chat_id, offset=0):
 
         # Car events
         for e in conn.execute("SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)).fetchall():
-            due = date.fromisoformat(e["due_date"])
+            try:
+                due = date.fromisoformat(e["due_date"])
+            except (ValueError, TypeError):
+                continue
             if start <= due < end:
                 events.setdefault(due, []).append(f"🚗 {e['description']}")
 
@@ -74,7 +77,7 @@ async def _show_week(query, chat_id, offset=0):
             WHERE pd.chat_id = ?
         """, (chat_id,)).fetchall()
         for pd_row in pdates:
-            target = _resolve_date(pd_row["date_value"], start)
+            target = resolve_date(pd_row["date_value"], start)
             if target and start <= target < end:
                 from keyboards import RELATIONSHIP_TYPES
                 rel = pd_row.get("relationship_type")
@@ -84,7 +87,10 @@ async def _show_week(query, chat_id, offset=0):
 
         # Credentials
         for c in conn.execute("SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)).fetchall():
-            exp = date.fromisoformat(c["expiry_date"])
+            try:
+                exp = date.fromisoformat(c["expiry_date"])
+            except (ValueError, TypeError):
+                continue
             if start <= exp < end:
                 events.setdefault(exp, []).append(f"🎓 {c['name']} EXPIRES")
 
@@ -95,7 +101,10 @@ async def _show_week(query, chat_id, offset=0):
         ).fetchall()
         from modules.appointments import CATEGORY_EMOJI
         for a in appts:
-            adate = date.fromisoformat(a["event_date"])
+            try:
+                adate = date.fromisoformat(a["event_date"])
+            except (ValueError, TypeError):
+                continue
             time_str = f" {a['event_time']}" if a["event_time"] else ""
             cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
             events.setdefault(adate, []).append(f"{cat_emoji} {a['title']}{time_str}")
@@ -132,15 +141,4 @@ async def _show_week(query, chat_id, offset=0):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
 
 
-def _resolve_date(date_value, start):
-    """Resolve MM-DD or ISO date string to a date object."""
-    try:
-        if len(date_value) == 5:
-            for year in [start.year, start.year + 1]:
-                target = date(year, int(date_value[:2]), int(date_value[3:]))
-                if target >= start:
-                    return target
-        else:
-            return date.fromisoformat(date_value)
-    except (ValueError, TypeError):
-        return None
+

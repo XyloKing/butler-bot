@@ -116,7 +116,9 @@ async def start_field_edit(update: Update, context: ContextTypes.DEFAULT_TYPE,
     context.user_data["field_edit_module"] = module
     context.user_data["field_edit_id"] = item_id
     context.user_data["field_edit_field"] = field
-    await query.edit_message_text(prompt)
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("✕ Cancel", callback_data="menu:main")]])
+    await query.edit_message_text(prompt, reply_markup=cancel_kb)
 
 
 async def handle_field_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -179,7 +181,7 @@ async def _send_detail_view(update, context, module, item_id, chat_id):
             bill = conn.execute("SELECT * FROM bills WHERE id = ?", (item_id,)).fetchone()
         if bill:
             from helpers import format_money
-            paid = "✅ PAID" if bill["paid_this_cycle"] else "⬜ UNPAID"
+            paid = "✅ Paid" if bill["paid_this_cycle"] else "⬜ unpaid"
             text = (
                 f"💸 {bill['name']}\n"
                 f"Amount: {format_money(bill['amount'])}\n"

@@ -11,6 +11,7 @@ from database import db, get_user
 from helpers import (
     now, today, days_until, urgency_emoji, friendly_date,
     format_money, get_user_shift, get_shift_info, is_payday, next_payday,
+    resolve_date, partner_emoji,
 )
 from keyboards import today_actions_kb
 
@@ -75,7 +76,7 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         meds = conn.execute("SELECT * FROM medications WHERE chat_id = ?", (chat_id,)).fetchall()
     if meds:
         untaken = [m["name"] for m in meds if not m["taken_today"]]
-        lines.append("💊 Meds: All taken ✅" if not untaken else f"💊 Meds: {', '.join(untaken)} NOT TAKEN ⚠️")
+        lines.append("💊 Meds: All taken ✅" if not untaken else f"💊 Meds: {', '.join(untaken)} not taken yet")
         lines.append("")
 
     # Bills due within 3 days
@@ -99,12 +100,19 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         car_events = conn.execute(
             "SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)
         ).fetchall()
-    upcoming_car = [(e, days_until(date.fromisoformat(e["due_date"]))) for e in car_events]
-    upcoming_car = [(e, d) for e, d in upcoming_car if d <= 30]
+    upcoming_car = []
+    for e in car_events:
+        try:
+            due = date.fromisoformat(e["due_date"])
+            delta = days_until(due)
+            if delta <= 30:
+                upcoming_car.append((e, delta, due))
+        except (ValueError, TypeError):
+            continue
     if upcoming_car:
         lines.append("🚗 CAR / ADMIN:")
-        for e, delta in upcoming_car:
-            lines.append(f"  {urgency_emoji(delta)} {e['description']} — {friendly_date(date.fromisoformat(e['due_date']))}")
+        for e, delta, due in upcoming_car:
+            lines.append(f"  {urgency_emoji(delta)} {e['description']} — {friendly_date(due)}")
         lines.append("")
 
     # Credentials expiring within 60 days
@@ -112,12 +120,19 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         creds = conn.execute(
             "SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)
         ).fetchall()
-    upcoming_creds = [(c, days_until(date.fromisoformat(c["expiry_date"]))) for c in creds]
-    upcoming_creds = [(c, d) for c, d in upcoming_creds if d <= 60]
+    upcoming_creds = []
+    for c in creds:
+        try:
+            exp = date.fromisoformat(c["expiry_date"])
+            delta = days_until(exp)
+            if delta <= 60:
+                upcoming_creds.append((c, delta, exp))
+        except (ValueError, TypeError):
+            continue
     if upcoming_creds:
         lines.append("🎓 CREDENTIALS:")
-        for c, delta in upcoming_creds:
-            lines.append(f"  {urgency_emoji(delta)} {c['name']} — expires {friendly_date(date.fromisoformat(c['expiry_date']))}")
+        for c, delta, exp in upcoming_creds:
+            lines.append(f"  {urgency_emoji(delta)} {c['name']} — expires {friendly_date(exp)}")
         lines.append("")
 
     # Partner dates within 14 days
@@ -129,13 +144,14 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """, (chat_id,)).fetchall()
     upcoming_partner = []
     for pd_row in partner_dates:
-        target, delta = _resolve_partner_date(pd_row["date_value"], d)
+        target = resolve_date(pd_row["date_value"], d)
+        delta = days_until(target) if target else 999
         if target and 0 <= delta <= 14:
             upcoming_partner.append((pd_row, delta))
     if upcoming_partner:
         lines.append("💜 COMING UP:")
         for pd_row, delta in upcoming_partner:
-            emoji = _partner_emoji(pd_row)
+            emoji = partner_emoji(pd_row)
             label = pd_row["label"] or pd_row["date_type"]
             lines.append(f"  {emoji} {pd_row['partner_name']} — {label} {friendly_date(d + timedelta(days=delta))}")
         lines.append("")
@@ -184,6 +200,8 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("Nothing urgent. Enjoy your day. 🫡")
 
     text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n[...truncated — tap Menu to see more]"
     if query:
         try:
             await query.edit_message_text(text, reply_markup=today_actions_kb())
@@ -222,28 +240,7 @@ def _bill_due_delta(bill, d):
     return None, 999
 
 
-def _resolve_partner_date(date_value, d):
-    """Resolve a partner date (MM-DD or ISO) to (target_date, delta)."""
-    try:
-        if len(date_value) == 5:  # MM-DD recurring
-            this_year = date(d.year, int(date_value[:2]), int(date_value[3:]))
-            if this_year < d:
-                this_year = date(d.year + 1, int(date_value[:2]), int(date_value[3:]))
-            return this_year, days_until(this_year)
-        else:
-            target = date.fromisoformat(date_value)
-            return target, days_until(target)
-    except (ValueError, TypeError):
-        return None, 999
 
-
-def _partner_emoji(pd_row):
-    """Get display emoji for a partner date row."""
-    from keyboards import RELATIONSHIP_TYPES
-    rel = pd_row.get("relationship_type")
-    if rel and rel in RELATIONSHIP_TYPES:
-        return RELATIONSHIP_TYPES[rel][0]
-    return pd_row.get("emoji") or "💜"
 
 
 # ── Me Time, Suggestions, Analyze handlers ──────────────────────
@@ -254,8 +251,11 @@ async def _handle_metime(query, chat_id):
     d = today()
     shift = get_user_shift(chat_id)
     current_hour = now().hour
+    worked_yesterday = is_working(chat_id, d - timedelta(days=1))
+    working_today = is_working(chat_id, d)
+    is_transition = worked_yesterday and not working_today
 
-    if shift and is_working(chat_id, d):
+    if shift and working_today:
         lines = [
             "🏥 You're working today — me-time will have to wait.",
             "",
@@ -264,6 +264,26 @@ async def _handle_metime(query, chat_id):
             "  🎵 Decompress with music",
             "  📱 Doomscroll for 15 min max, then lights out",
         ]
+    elif is_transition:
+        # Find next work day for window estimate
+        next_work = None
+        if shift:
+            for i in range(1, 8):
+                check = d + timedelta(days=i)
+                if is_working(chat_id, check):
+                    next_work = check
+                    break
+        lines = [
+            "🔄 Transition day — your body is adjusting schedules.",
+            "",
+            "Good windows:",
+            "  😴 Rest 1–3 hours after waking",
+            "  🚶 Errands between 5 PM and 9 PM if needed",
+            "  🎵 Low-key activities — nothing demanding",
+            "  📱 Light screen time, avoid heavy decisions",
+        ]
+        if next_work:
+            lines.append(f"  📅 Next shift: {next_work.strftime('%A')} — start adjusting tonight")
     else:
         # Find next work day
         next_work = None
@@ -338,7 +358,13 @@ async def _handle_analyze(query, chat_id):
         creds = conn.execute(
             "SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)
         ).fetchall()
-    expiring = [c for c in creds if days_until(date.fromisoformat(c["expiry_date"])) <= 90]
+    expiring = []
+    for c in creds:
+        try:
+            if days_until(date.fromisoformat(c["expiry_date"])) <= 90:
+                expiring.append(c)
+        except (ValueError, TypeError):
+            continue
     if expiring:
         lines.append(f"🎓 Credentials expiring soon: {len(expiring)}")
 
@@ -347,7 +373,13 @@ async def _handle_analyze(query, chat_id):
         car_events = conn.execute(
             "SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)
         ).fetchall()
-    car_due = [e for e in car_events if days_until(date.fromisoformat(e["due_date"])) <= 60]
+    car_due = []
+    for e in car_events:
+        try:
+            if days_until(date.fromisoformat(e["due_date"])) <= 60:
+                car_due.append(e)
+        except (ValueError, TypeError):
+            continue
     if car_due:
         lines.append(f"🚗 Car items due: {len(car_due)}")
 

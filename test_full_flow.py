@@ -638,6 +638,202 @@ def test_settings_setpayday():
 test("Settings: payday picker saves to DB", test_settings_setpayday)
 
 
+# ══════════════════════════════════════════════════════════
+section("HEARTBEAT & PROACTIVE FEATURES")
+# ══════════════════════════════════════════════════════════
+
+def test_heartbeat_no_data():
+    """Heartbeat should not crash with an empty user (no meds, no bills, no appointments)."""
+    from modules.scheduler import _send_heartbeat, _most_urgent_item
+    from datetime import date
+
+    ensure_user(444, "HeartbeatUser")
+    update_user(444, onboarded=1)
+
+    # _most_urgent_item should return None with no data
+    d = date.today()
+    result = _most_urgent_item(444, d)
+    assert result is None, f"Expected None for empty user, got: {result}"
+
+test("Heartbeat: _most_urgent_item returns None for empty user", test_heartbeat_no_data)
+
+
+def test_heartbeat_with_appointment():
+    """Heartbeat should find an upcoming appointment as urgent."""
+    from modules.scheduler import _most_urgent_item
+    from datetime import date, timedelta
+
+    d = date.today()
+    tomorrow = (d + timedelta(days=1)).isoformat()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO appointments (chat_id, title, event_date) VALUES (?, ?, ?)",
+            (999, "Blood work", tomorrow),
+        )
+    result = _most_urgent_item(999, d)
+    assert result is not None, "Should find tomorrow's appointment"
+    assert "Blood work" in result
+    assert "tomorrow" in result
+
+test("Heartbeat: _most_urgent_item finds tomorrow's appointment", test_heartbeat_with_appointment)
+
+
+def test_heartbeat_with_untaken_meds():
+    """Heartbeat should report untaken meds when nothing else is urgent."""
+    from modules.scheduler import _most_urgent_item
+    from datetime import date, timedelta
+
+    ensure_user(333, "MedTestUser")
+    update_user(333, onboarded=1)
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO medications (chat_id, name, taken_today) VALUES (?, ?, ?)",
+            (333, "Aspirin", 0),
+        )
+    d = date.today()
+    result = _most_urgent_item(333, d)
+    assert result is not None
+    assert "Aspirin" in result
+
+test("Heartbeat: _most_urgent_item finds untaken meds", test_heartbeat_with_untaken_meds)
+
+
+def test_task_breakdown_detection():
+    """Task breakdown should detect task-like notes."""
+    from modules.notes import _sounds_like_task, _break_into_steps
+
+    assert _sounds_like_task("I need to clean the entire apartment this weekend") == True
+    assert _sounds_like_task("gotta schedule a dentist appointment soon") == True
+    assert _sounds_like_task("I should organize my taxes before April") == True
+    assert _sounds_like_task("short") == False  # Too short
+    assert _sounds_like_task("Just a regular note about nothing in particular really") == False  # No task words
+
+    # Verify breakdown returns steps
+    steps = _break_into_steps("need to clean the apartment")
+    assert len(steps) > 0
+    assert any("trash" in s.lower() or "surface" in s.lower() for s in steps)
+
+    steps = _break_into_steps("schedule a dentist appointment")
+    assert len(steps) > 0
+    assert any("provider" in s.lower() or "number" in s.lower() for s in steps)
+
+    # Generic breakdown
+    steps = _break_into_steps("I need to deal with that thing from last month")
+    assert len(steps) == 3
+
+test("Task breakdown: detection and step generation", test_task_breakdown_detection)
+
+
+def test_task_breakdown_callback():
+    """Test notes:breakdown callback works end to end."""
+    from modules.notes import notes_callback, handle_note_text
+    ctx = FakeContext()
+
+    # First add a note that sounds like a task
+    ctx.user_data["awaiting"] = "note_content"
+    ctx.user_data["note_category"] = "general"
+    ctx.user_data["note_ref_id"] = None
+    u = FakeUpdate(text="I need to organize all my tax documents before April deadline")
+    run(handle_note_text(u, ctx))
+    # Should offer breakdown
+    msg = u.message.replies[-1]
+    assert "break it down" in msg["text"].lower()
+    # Get the note_id from the callback data
+    btns = [b.callback_data for row in msg["markup"].inline_keyboard for b in row if b.callback_data]
+    breakdown_btn = [b for b in btns if "breakdown" in b]
+    assert breakdown_btn, f"No breakdown button found in: {btns}"
+
+    # Now tap the breakdown button
+    u = FakeUpdate(cb=breakdown_btn[0])
+    run(notes_callback(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from breakdown handler"
+    text = q.edits[-1]["text"]
+    assert "Breaking down" in text
+    assert "1." in text  # Has numbered steps
+
+test("Task breakdown: full callback flow", test_task_breakdown_callback)
+
+
+def test_note_no_breakdown_for_short():
+    """Short notes should not offer breakdown."""
+    from modules.notes import handle_note_text
+    ctx = FakeContext()
+    ctx.user_data["awaiting"] = "note_content"
+    ctx.user_data["note_category"] = "general"
+    ctx.user_data["note_ref_id"] = None
+    u = FakeUpdate(text="Buy milk")
+    run(handle_note_text(u, ctx))
+    msg = u.message.replies[-1]
+    assert "break it down" not in msg["text"].lower()
+    assert any(w in msg["text"] for w in ["Saved", "Got it", "Noted", "Logged"]), f"Unexpected note save text: {msg['text']}"
+
+test("Task breakdown: short notes don't trigger breakdown offer", test_note_no_breakdown_for_short)
+
+
+def test_med_streak_column_exists():
+    """Verify med_streak column exists after migration."""
+    with db() as conn:
+        user = conn.execute("SELECT med_streak FROM users WHERE chat_id = 999").fetchone()
+    assert user is not None
+    # Default should be 0
+    assert user["med_streak"] is not None
+
+test("Med streak: column exists with default value", test_med_streak_column_exists)
+
+
+def test_med_streak_celebration():
+    """Med streak should fire celebration at milestones."""
+    from modules.meds import _check_streak_celebration, STREAK_MESSAGES
+    # Set streak to 2 (so +1 = 3, which is a milestone)
+    with db() as conn:
+        conn.execute("UPDATE users SET med_streak = 2 WHERE chat_id = 999")
+    result = _check_streak_celebration(999)
+    assert result is not None
+    assert "3 days" in result
+
+    # Set streak to 5 — not a milestone
+    with db() as conn:
+        conn.execute("UPDATE users SET med_streak = 5 WHERE chat_id = 999")
+    result = _check_streak_celebration(999)
+    assert result is None, f"Expected None for non-milestone, got: {result}"
+
+    # Set streak to 6 (+1 = 7, milestone)
+    with db() as conn:
+        conn.execute("UPDATE users SET med_streak = 6 WHERE chat_id = 999")
+    result = _check_streak_celebration(999)
+    assert result is not None
+    assert "week" in result.lower()
+
+    # Reset for other tests
+    with db() as conn:
+        conn.execute("UPDATE users SET med_streak = 0 WHERE chat_id = 999")
+
+test("Med streak: celebrations fire at milestones 3, 7", test_med_streak_celebration)
+
+
+def test_morning_heartbeat_toggle():
+    """Morning heartbeat should appear in feature toggles."""
+    from keyboards import feature_toggles_kb
+    kb = feature_toggles_kb({})
+    btns = [b.callback_data for row in kb.inline_keyboard for b in row if b.callback_data]
+    assert any("morning_heartbeat" in b for b in btns), f"morning_heartbeat not in toggles: {btns}"
+
+test("Morning heartbeat: appears in feature toggles", test_morning_heartbeat_toggle)
+
+
+def test_new_callback_data_lengths():
+    """Verify all new callback data strings are within Telegram's 64-byte limit."""
+    callbacks = [
+        "notes:breakdown:99999",
+        "settings:toggle:morning_heartbeat",
+    ]
+    for cb in callbacks:
+        assert len(cb.encode('utf-8')) <= 64, f"Callback too long ({len(cb.encode('utf-8'))} bytes): {cb}"
+
+test("New callback data strings ≤ 64 bytes", test_new_callback_data_lengths)
+
+
 def test_callback_data_lengths():
     """Verify all new callback data strings are within Telegram's 64-byte limit."""
     from datetime import date
@@ -660,6 +856,64 @@ def test_callback_data_lengths():
         assert len(cb.encode('utf-8')) <= 64, f"Callback too long ({len(cb.encode('utf-8'))} bytes): {cb}"
 
 test("All new callback data strings ≤ 64 bytes", test_callback_data_lengths)
+
+
+# ══════════════════════════════════════════════════════════
+section("CODE QUALITY: Cancel buttons on text prompts")
+# ══════════════════════════════════════════════════════════
+
+def test_cancel_buttons_on_prompts():
+    """Every text-input prompt from menu flows should have a cancel button."""
+    ctx = FakeContext()
+
+    # Helper to check for cancel/menu:main button in a handler's output
+    def has_cancel(update_obj):
+        markup = None
+        if update_obj.callback_query:
+            q = update_obj.callback_query
+            if q.edits:
+                markup = q.edits[-1].get("markup")
+        if markup:
+            all_cbs = [b.callback_data for row in markup.inline_keyboard for b in row if b.callback_data]
+            return "menu:main" in all_cbs
+        return False
+
+    # Notes: add
+    from modules.notes import notes_callback
+    u = FakeUpdate(cb="notes:add:general"); run(notes_callback(u, ctx))
+    assert has_cancel(u), "notes:add prompt missing cancel button"
+
+    # Bills: add
+    from modules.bills import bills_callback
+    u = FakeUpdate(cb="bills:add"); run(bills_callback(u, ctx))
+    assert has_cancel(u), "bills:add prompt missing cancel button"
+
+    # Meds: add
+    from modules.meds import meds_callback
+    u = FakeUpdate(cb="meds:add"); run(meds_callback(u, ctx))
+    assert has_cancel(u), "meds:add prompt missing cancel button"
+
+    # Appointments: add
+    from modules.appointments import appts_callback
+    u = FakeUpdate(cb="appts:add"); run(appts_callback(u, ctx))
+    assert has_cancel(u), "appts:add prompt missing cancel button"
+
+    # Partners: add
+    from modules.partners import partners_callback
+    u = FakeUpdate(cb="partners:add"); run(partners_callback(u, ctx))
+    assert has_cancel(u), "partners:add prompt missing cancel button"
+
+    # Credentials: add
+    from modules.credentials import creds_callback
+    u = FakeUpdate(cb="creds:add"); run(creds_callback(u, ctx))
+    assert has_cancel(u), "creds:add prompt missing cancel button"
+
+    # Car: custom type
+    from modules.car import car_callback
+    u = FakeUpdate(cb="car:addtype:custom"); run(car_callback(u, ctx))
+    assert has_cancel(u), "car:addtype:custom prompt missing cancel button"
+
+test("Cancel buttons present on all text-input prompts", test_cancel_buttons_on_prompts)
 
 
 # ══════════════════════════════════════════════════════════

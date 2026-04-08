@@ -233,6 +233,14 @@ def _migrate_appointments():
                 else:
                     raise
 
+    # Med streak column
+    with db() as conn:
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN med_streak INTEGER DEFAULT 0")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
 
 def ensure_user(chat_id: int, name: str = None):
     """Create user row if not exists. Return onboarded status."""

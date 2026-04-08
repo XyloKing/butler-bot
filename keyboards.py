@@ -676,6 +676,7 @@ def payday_picker_kb() -> InlineKeyboardMarkup:
 def feature_toggles_kb(toggles: dict) -> InlineKeyboardMarkup:
     """Settings panel showing on/off toggles for each bot feature."""
     features = [
+        ("morning_heartbeat", "🌅 Morning Heartbeat"),
         ("med_reminders",    "💊 Med Reminders"),
         ("bill_reminders",   "💸 Bill Reminders"),
         ("appt_reminders",   "📅 Appt Reminders"),
