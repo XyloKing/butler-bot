@@ -251,12 +251,109 @@ async def handle_alter_schedule(update: Update, context: ContextTypes.DEFAULT_TY
         from keyboards import alter_schedule_kb
         await query.edit_message_text(
             "📅 ALTER SCHEDULE\n\n"
-            "Quick change for today or tomorrow?\n"
-            "Or edit your full rotation below.",
+            "Pick a day to change, or edit your full rotation.",
             reply_markup=alter_schedule_kb(),
         )
 
+    elif action == "day":
+        # alter:day:{iso_date} — user picked a specific day
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from datetime import date as _date
+        day_str = parts[2] if len(parts) > 2 else ""
+        try:
+            target = _date.fromisoformat(day_str)
+        except ValueError:
+            await query.edit_message_text("Invalid date. Tap /menu.")
+            return
+        weekday_name = target.strftime("%A %b %d")
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🏥 Working", callback_data=f"alter:setday:{day_str}:on"),
+                InlineKeyboardButton("🏠 Off", callback_data=f"alter:setday:{day_str}:off"),
+            ],
+            [InlineKeyboardButton("⬅️ Back", callback_data="alter:start")],
+        ])
+        await query.edit_message_text(
+            f"Is {weekday_name} a work day?",
+            reply_markup=kb,
+        )
+
+    elif action == "setday":
+        # alter:setday:{iso_date}:{on|off} — ask week-only or permanent
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from datetime import date as _date
+        day_str = parts[2] if len(parts) > 2 else ""
+        status = parts[3] if len(parts) > 3 else "off"
+        try:
+            target = _date.fromisoformat(day_str)
+        except ValueError:
+            await query.edit_message_text("Invalid date. Tap /menu.")
+            return
+        status_label = "🏥 Working" if status == "on" else "🏠 Off"
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📅 Just this week", callback_data=f"alter:scope:{day_str}:{status}:week")],
+            [InlineKeyboardButton("🔄 Change rotation", callback_data=f"alter:scope:{day_str}:{status}:perm")],
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"alter:day:{day_str}")],
+        ])
+        await query.edit_message_text(
+            f"{status_label} on {target.strftime('%A %b %d')}\n\n"
+            "Just this week, or change your rotation permanently?",
+            reply_markup=kb,
+        )
+
+    elif action == "scope":
+        # alter:scope:{iso_date}:{on|off}:{week|perm}
+        from database import db
+        from datetime import date as _date
+        import json as _json
+        day_str = parts[2] if len(parts) > 2 else ""
+        status = parts[3] if len(parts) > 3 else "off"
+        scope = parts[4] if len(parts) > 4 else "week"
+        try:
+            target = _date.fromisoformat(day_str)
+        except ValueError:
+            await query.edit_message_text("Invalid date. Tap /menu.")
+            return
+        is_working_val = 1 if status == "on" else 0
+        status_label = "🏥 Working" if status == "on" else "🏠 Off"
+
+        if scope == "week":
+            with db() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO shift_overrides (chat_id, override_date, is_working) VALUES (?, ?, ?)",
+                    (chat_id, target.isoformat(), is_working_val),
+                )
+            msg = f"✅ {status_label} {target.strftime('%A %m/%d')} — override saved (this week only)."
+        else:
+            # Permanent: update the shifts table rotation for this weekday
+            weekday = target.weekday()
+            with db() as conn:
+                shift = conn.execute(
+                    "SELECT * FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+                    (chat_id,),
+                ).fetchone()
+            if shift:
+                w1 = _json.loads(shift["week1_days"] or "[]")
+                w2 = _json.loads(shift["week2_days"] or "[]")
+                for week_days in (w1, w2):
+                    if is_working_val and weekday not in week_days:
+                        week_days.append(weekday)
+                    elif not is_working_val and weekday in week_days:
+                        week_days.remove(weekday)
+                with db() as conn:
+                    conn.execute(
+                        "UPDATE shifts SET week1_days = ?, week2_days = ? WHERE chat_id = ?",
+                        (_json.dumps(sorted(w1)), _json.dumps(sorted(w2)), chat_id),
+                    )
+                msg = f"✅ {status_label} every {target.strftime('%A')} — rotation updated."
+            else:
+                msg = "No schedule found. Set one up in Settings first."
+
+        from keyboards import today_actions_kb
+        await query.edit_message_text(msg, reply_markup=today_actions_kb())
+
     elif action.startswith("override_on") or action.startswith("override_off"):
+        # Legacy quick-override buttons (kept for backward compat)
         from database import db
         from helpers import today
         from datetime import timedelta
@@ -411,9 +508,44 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif action == "payday":
+        from keyboards import payday_picker_kb
+        from database import db
+        with db() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE chat_id = ? AND key = 'payday_type'",
+                (chat_id,)
+            ).fetchone()
+        current = row["value"] if row else "weekly_friday"
+        labels = {
+            "weekly_friday": "Every Friday",
+            "biweekly_friday": "Every Other Friday",
+            "first_fifteenth": "1st & 15th",
+            "custom": "Custom day",
+        }
         await query.edit_message_text(
-            "💰 Payday: Every Friday\n\n"
-            "(Editing payday settings coming soon)",
+            f"💰 PAYDAY SETTINGS\n\n"
+            f"Current: {labels.get(current, current)}\n\n"
+            "Pick your payday schedule:",
+            reply_markup=payday_picker_kb(),
+        )
+
+    elif action == "setpayday":
+        # settings:setpayday:{val}
+        from database import db
+        val = parts[2] if len(parts) > 2 else "weekly_friday"
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'payday_type', ?)",
+                (chat_id, val),
+            )
+        labels = {
+            "weekly_friday": "Every Friday",
+            "biweekly_friday": "Every Other Friday",
+            "first_fifteenth": "1st & 15th of month",
+            "custom": "Custom day of month",
+        }
+        await query.edit_message_text(
+            f"✅ Payday set to: {labels.get(val, val)}",
             reply_markup=settings_kb(),
         )
 

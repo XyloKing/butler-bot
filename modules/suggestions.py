@@ -83,7 +83,7 @@ def _partner_nudge(chat_id, d):
         partners = conn.execute("SELECT * FROM partners WHERE chat_id = ?", (chat_id,)).fetchall()
 
     for p in partners:
-        freq = p.get("interaction_freq") or "flexible"
+        freq = dict(p).get("interaction_freq") or "flexible"
         if freq == "flexible":
             continue
 
@@ -95,7 +95,7 @@ def _partner_nudge(chat_id, d):
             ).fetchone()
 
         if not last:
-            created = p["created_at"][:10] if p.get("created_at") else None
+            created = p["created_at"][:10] if dict(p).get("created_at") else None
             if created and (d - date.fromisoformat(created)).days > 7:
                 return f"💜 You haven't logged time with {p['name']} yet. Maybe reach out?"
             continue
@@ -109,7 +109,7 @@ def _partner_nudge(chat_id, d):
         threshold = {"daily": 2, "weekly": 10, "biweekly": 18, "monthly": 35}.get(freq, 999)
 
         if days_since >= threshold:
-            rel = p.get("relationship_type")
+            rel = dict(p).get("relationship_type")
             name = p["name"]
             if rel == "partner":
                 return f"💜 It's been {days_since} days since your last date with {name}. Time to plan one?"

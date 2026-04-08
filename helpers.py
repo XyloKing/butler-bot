@@ -89,12 +89,43 @@ def next_weekday(weekday: int, from_date: date | None = None) -> date:
     return d + timedelta(days=days_ahead)
 
 
-def is_payday(d: date | None = None, payday_weekday: int = 4) -> bool:
-    return (d or today()).weekday() == payday_weekday
+def _get_payday_type(chat_id: int = None) -> str:
+    """Read payday_type from settings. Returns 'weekly_friday' if not set."""
+    if chat_id is None:
+        return "weekly_friday"
+    from database import db
+    with db() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE chat_id = ? AND key = 'payday_type'",
+            (chat_id,)
+        ).fetchone()
+    return row["value"] if row else "weekly_friday"
 
 
-def next_payday(payday_weekday: int = 4, from_date: date | None = None) -> date:
-    return next_weekday(payday_weekday, from_date)
+def is_payday(d: date | None = None, chat_id: int = None) -> bool:
+    d = d or today()
+    ptype = _get_payday_type(chat_id)
+    if ptype == "weekly_friday":
+        return d.weekday() == 4
+    if ptype == "biweekly_friday":
+        # Biweekly from a fixed epoch (Jan 2, 2026 was a Friday)
+        epoch = date(2026, 1, 2)
+        return d.weekday() == 4 and ((d - epoch).days // 7) % 2 == 0
+    if ptype == "first_fifteenth":
+        return d.day in (1, 15)
+    # Default fallback
+    return d.weekday() == 4
+
+
+def next_payday(chat_id: int = None, from_date: date | None = None) -> date:
+    d = (from_date or today()) + timedelta(days=1)
+    # Search up to 35 days ahead
+    for _ in range(35):
+        if is_payday(d, chat_id):
+            return d
+        d += timedelta(days=1)
+    # Fallback: next Friday
+    return next_weekday(4, from_date)
 
 
 def check_override(d: date, chat_id: int) -> int | None:

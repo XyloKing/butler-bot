@@ -31,6 +31,21 @@ def _dates_this_week(chat_id, d):
 async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat_id = query.message.chat_id if query else update.effective_chat.id
+
+    # Route sub-actions
+    if query and query.data:
+        parts = query.data.split(":")
+        action = parts[1] if len(parts) > 1 else "view"
+        if action == "metime":
+            await _handle_metime(query, chat_id)
+            return
+        if action == "suggest":
+            await _handle_suggest(query, chat_id)
+            return
+        if action == "analyze":
+            await _handle_analyze(query, chat_id)
+            return
+
     user = get_user(chat_id)
 
     d = today()
@@ -229,3 +244,125 @@ def _partner_emoji(pd_row):
     if rel and rel in RELATIONSHIP_TYPES:
         return RELATIONSHIP_TYPES[rel][0]
     return pd_row.get("emoji") or "💜"
+
+
+# ── Me Time, Suggestions, Analyze handlers ──────────────────────
+
+async def _handle_metime(query, chat_id):
+    """Show me-time ideas based on current shift status."""
+    from helpers import get_user_shift, get_shift_info, is_working, now
+    d = today()
+    shift = get_user_shift(chat_id)
+    current_hour = now().hour
+
+    if shift and is_working(chat_id, d):
+        lines = [
+            "🏥 You're working today — me-time will have to wait.",
+            "",
+            "After your shift:",
+            "  😴 Sleep (protect your window)",
+            "  🎵 Decompress with music",
+            "  📱 Doomscroll for 15 min max, then lights out",
+        ]
+    else:
+        # Find next work day
+        next_work = None
+        if shift:
+            for i in range(1, 8):
+                check = d + timedelta(days=i)
+                if is_working(chat_id, check):
+                    next_work = check
+                    break
+        if next_work:
+            until = f"next shift ({next_work.strftime('%A')})"
+        else:
+            until = "your next shift"
+
+        lines = [
+            f"🏠 ME TIME — You're off until {until}.",
+            "",
+            "Ideas:",
+            f"  🎮 Gaming window: now – whenever",
+            "  😴 Rest (post-shift recovery)" if shift else "  😴 Rest & recharge",
+            "  🎵 Music / creative time",
+            "  🚶 Get outside for 15+ min",
+            "  📅 Free for a date tonight?",
+        ]
+
+    await query.edit_message_text("\n".join(lines), reply_markup=today_actions_kb())
+
+
+async def _handle_suggest(query, chat_id):
+    """Show contextual suggestions."""
+    from modules.suggestions import get_suggestions
+    current_hour = now().hour
+    time_of_day = "afternoon" if current_hour < 18 else "evening"
+    suggestions = get_suggestions(chat_id, time_of_day)
+
+    if suggestions:
+        lines = ["💡 SUGGESTIONS", ""]
+        for s in suggestions:
+            lines.append(f"  {s}")
+    else:
+        lines = ["💡 No suggestions right now. You're on top of things. 🫡"]
+
+    await query.edit_message_text("\n".join(lines), reply_markup=today_actions_kb())
+
+
+async def _handle_analyze(query, chat_id):
+    """Quick personal status summary."""
+    d = today()
+    lines = ["📊 QUICK STATUS", ""]
+
+    # Meds
+    with db() as conn:
+        meds = conn.execute("SELECT * FROM medications WHERE chat_id = ?", (chat_id,)).fetchall()
+    if meds:
+        taken = sum(1 for m in meds if m["taken_today"])
+        lines.append(f"💊 Meds: {taken}/{len(meds)} taken today")
+
+    # Bills
+    with db() as conn:
+        bills = conn.execute("SELECT * FROM bills WHERE chat_id = ?", (chat_id,)).fetchall()
+    if bills:
+        unpaid = [b for b in bills if not b["paid_this_cycle"]]
+        total = sum((b["amount"] or 0) for b in unpaid)
+        lines.append(f"💸 Bills: {len(unpaid)} unpaid ({format_money(total)})")
+
+    # Dates this week
+    dates_count = _dates_this_week(chat_id, d)
+    lines.append(f"📅 Dates this week: {dates_count}/2")
+
+    # Credentials expiring within 90 days
+    with db() as conn:
+        creds = conn.execute(
+            "SELECT * FROM credentials WHERE chat_id = ? AND renewed = 0", (chat_id,)
+        ).fetchall()
+    expiring = [c for c in creds if days_until(date.fromisoformat(c["expiry_date"])) <= 90]
+    if expiring:
+        lines.append(f"🎓 Credentials expiring soon: {len(expiring)}")
+
+    # Car items due within 60 days
+    with db() as conn:
+        car_events = conn.execute(
+            "SELECT * FROM car_events WHERE chat_id = ? AND done = 0", (chat_id,)
+        ).fetchall()
+    car_due = [e for e in car_events if days_until(date.fromisoformat(e["due_date"])) <= 60]
+    if car_due:
+        lines.append(f"🚗 Car items due: {len(car_due)}")
+
+    # Upcoming appointments (next 3)
+    from modules.appointments import get_upcoming_appointments, CATEGORY_EMOJI
+    upcoming = get_upcoming_appointments(chat_id, days_ahead=14)
+    if upcoming:
+        lines.append("")
+        lines.append("📅 Upcoming:")
+        for a in upcoming[:3]:
+            event_date = date.fromisoformat(a["event_date"])
+            cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
+            lines.append(f"  {cat_emoji} {a['title']} — {friendly_date(event_date)}")
+
+    if len(lines) <= 2:
+        lines.append("Nothing tracked yet. Add items from the menu.")
+
+    await query.edit_message_text("\n".join(lines), reply_markup=today_actions_kb())

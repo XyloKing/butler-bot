@@ -370,7 +370,11 @@ async def _handle_back(query: CallbackQuery, chat_id: int,
     if target == "shift_type":
         # Clear all schedule-related keys so re-entering starts fresh
         user = get_user(chat_id)
-        ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+        try:
+            ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+        except (json.JSONDecodeError, TypeError):
+            ob_data = {}
+            update_user(chat_id, onboard_data="{}")
         for key in ("week1_days", "week2_days", "weeks", "selected_days", "shift_type"):
             ob_data.pop(key, None)
         update_user(chat_id, onboard_step="shift_type", onboard_data=json.dumps(ob_data))
@@ -511,7 +515,11 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                                    action: str, parts: list, context):
     """All onboard callback logic, wrapped by onboard_callback's try/except."""
     user = get_user(chat_id)
-    ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+    try:
+        ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+    except (json.JSONDecodeError, TypeError):
+        ob_data = {}
+        update_user(chat_id, onboard_data="{}")
 
     # ── Back navigation ──────────────────────────────────────
     if action == "back":
@@ -629,7 +637,11 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                 return
             # Refresh ob_data in case it changed
             user = get_user(chat_id)
-            ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+            try:
+                ob_data = json.loads(user["onboard_data"] or "{}") if user else {}
+            except (json.JSONDecodeError, TypeError):
+                ob_data = {}
+                update_user(chat_id, onboard_data="{}")
 
             if date_type == "car":
                 car_desc = ob_data.pop("pending_car_desc", "Car item")
@@ -1131,7 +1143,11 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return False
 
     text = update.message.text.strip()
-    ob_data = json.loads(user["onboard_data"] or "{}")
+    try:
+        ob_data = json.loads(user["onboard_data"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        ob_data = {}
+        update_user(chat_id, onboard_data="{}")
 
     # ── Name ─────────────────────────────────────────────────
     if awaiting == AWAITING_NAME:
@@ -1236,7 +1252,7 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "INSERT INTO bills (chat_id, name, amount) VALUES (?, ?, ?)",
                 (chat_id, bill_name, amount),
             )
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="car_intro")
+        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_amount")
         context.user_data["awaiting"] = None
         amt_str = f" (${amount:,.0f})" if amount is not None else ""
         await update.message.reply_text(

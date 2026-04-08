@@ -226,7 +226,11 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             partner = conn.execute("SELECT name FROM partners WHERE id = ? AND chat_id = ?",
                                    (item_id, chat_id)).fetchone()
         name = partner["name"] if partner else "this person"
-        await query.edit_message_text(f"Remove {name}?", reply_markup=confirm_delete_kb("partners", item_id))
+        await query.edit_message_text(
+            f"⚠️ Remove {name} and ALL their dates/birthdays/anniversaries?\n\n"
+            "This cannot be undone.",
+            reply_markup=confirm_delete_kb("partners", item_id),
+        )
 
     elif action == "confirm_delete":
         with db() as conn:

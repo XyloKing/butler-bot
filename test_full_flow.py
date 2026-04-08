@@ -455,6 +455,214 @@ test("Today view: empty user doesn't crash", test_empty_today_view)
 
 
 # ══════════════════════════════════════════════════════════
+section("BUG FIXES & NEW FEATURES")
+# ══════════════════════════════════════════════════════════
+
+def test_corrupted_onboard_data():
+    """BUG 1: Corrupted onboard_data JSON should not crash."""
+    from modules.onboarding import onboard_callback, handle_onboard_text
+    ensure_user(666, "Corrupt")
+    update_user(666, onboarded=0, onboard_step="bill_name", onboard_data="{invalid json!!!}")
+    ctx = FakeContext()
+    ctx.user_data["awaiting"] = "onboard_bill_name"
+    # This should not crash — the handler should reset ob_data to {}
+    u = FakeUpdate(text="Electric", cid=666)
+    run(handle_onboard_text(u, ctx))
+    # Verify it didn't crash and the user's onboard_data was reset to valid JSON
+    user = get_user(666)
+    try:
+        json.loads(user["onboard_data"] or "{}")
+    except json.JSONDecodeError:
+        raise AssertionError("onboard_data is still corrupted after recovery")
+
+test("Corrupted onboard_data JSON: no crash, auto-reset", test_corrupted_onboard_data)
+
+
+def test_second_bill_add():
+    """BUG 2: Adding a second bill in onboarding should loop back correctly."""
+    from modules.onboarding import onboard_callback, handle_onboard_text
+    ensure_user(555, "BillTest")
+    update_user(555, onboarded=0, onboard_step="name", onboard_data="{}")
+    ctx = FakeContext()
+    def cb(data):
+        u = FakeUpdate(cb=data, cid=555); run(onboard_callback(u, ctx)); return u
+    def txt(text):
+        u = FakeUpdate(text=text, cid=555); run(handle_onboard_text(u, ctx)); return u
+
+    cb("onboard:start")
+    txt("BillTest")
+    cb("onboard:shift:7p-7a")
+    cb("onboard:day:0"); cb("onboard:days_done"); cb("onboard:add_week:no")
+    cb("onboard:partners_intro")
+    cb("onboard:add_partners:no")
+    cb("onboard:bills_intro")
+    cb("onboard:add_bills:yes")
+    txt("Rent")
+    txt("$1200")
+    # After first bill, onboard_step should be bill_amount (not car_intro)
+    user = get_user(555)
+    assert user["onboard_step"] == "bill_amount", f"Expected bill_amount, got {user['onboard_step']}"
+    # Add second bill
+    cb("onboard:another_bill:yes")
+    assert ctx.user_data["awaiting"] == "onboard_bill_name"
+    txt("Internet")
+    txt("$80")
+    # Verify both saved
+    with db() as conn:
+        bills = conn.execute("SELECT name FROM bills WHERE chat_id=555 ORDER BY name").fetchall()
+    names = [b["name"] for b in bills]
+    assert "Rent" in names and "Internet" in names, f"Expected both bills, got {names}"
+    # Now skip
+    cb("onboard:another_bill:no")
+    user = get_user(555)
+    assert user["onboard_step"] == "car_intro"
+
+test("Second bill add: loops correctly, both saved", test_second_bill_add)
+
+
+def test_alter_day_handler():
+    """BUG 3: alter:day:{date} handler shows Working/Off buttons."""
+    from bot import handle_alter_schedule
+    from datetime import date
+    ctx = FakeContext()
+    today_str = date.today().isoformat()
+    u = FakeUpdate(cb=f"alter:day:{today_str}")
+    run(handle_alter_schedule(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from alter:day handler"
+    last = q.edits[-1]
+    assert "work day" in last["text"].lower(), f"Expected work day prompt, got: {last['text'][:50]}"
+    # Check buttons exist
+    btns = [b.callback_data for row in last["markup"].inline_keyboard for b in row if b.callback_data]
+    assert any("setday" in b for b in btns), f"No setday buttons found: {btns}"
+
+test("Alter schedule: day picker shows Working/Off", test_alter_day_handler)
+
+
+def test_alter_setday_handler():
+    """BUG 3: alter:setday:{date}:{on} shows scope picker."""
+    from bot import handle_alter_schedule
+    from datetime import date
+    ctx = FakeContext()
+    today_str = date.today().isoformat()
+    u = FakeUpdate(cb=f"alter:setday:{today_str}:on")
+    run(handle_alter_schedule(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from alter:setday handler"
+    last = q.edits[-1]
+    btns = [b.callback_data for row in last["markup"].inline_keyboard for b in row if b.callback_data]
+    assert any("scope" in b for b in btns), f"No scope buttons: {btns}"
+
+test("Alter schedule: setday shows scope picker", test_alter_setday_handler)
+
+
+def test_alter_scope_week():
+    """BUG 3: alter:scope saves override."""
+    from bot import handle_alter_schedule
+    from datetime import date
+    ctx = FakeContext()
+    today_str = date.today().isoformat()
+    u = FakeUpdate(cb=f"alter:scope:{today_str}:on:week")
+    run(handle_alter_schedule(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from alter:scope handler"
+    assert "override saved" in q.edits[-1]["text"].lower() or "\u2705" in q.edits[-1]["text"]
+    # Verify DB
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM shift_overrides WHERE chat_id=999 AND override_date=?",
+            (today_str,)
+        ).fetchone()
+    assert row and row["is_working"] == 1
+
+test("Alter schedule: scope=week saves override to DB", test_alter_scope_week)
+
+
+def test_today_metime():
+    """FEATURE: today:metime handler."""
+    from modules.today import today_view
+    ctx = FakeContext()
+    u = FakeUpdate(cb="today:metime")
+    run(today_view(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from metime handler"
+    text = q.edits[-1]["text"].lower()
+    assert "me time" in text or "working" in text, f"Unexpected metime text: {text[:60]}"
+
+test("Today: Me Time handler works", test_today_metime)
+
+
+def test_today_suggest():
+    """FEATURE: today:suggest handler."""
+    from modules.today import today_view
+    ctx = FakeContext()
+    u = FakeUpdate(cb="today:suggest")
+    run(today_view(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from suggest handler"
+    text = q.edits[-1]["text"]
+    assert "SUGGESTIONS" in text or "suggestions" in text.lower() or "on top" in text.lower()
+
+test("Today: Suggestions handler works", test_today_suggest)
+
+
+def test_today_analyze():
+    """FEATURE: today:analyze handler."""
+    from modules.today import today_view
+    ctx = FakeContext()
+    u = FakeUpdate(cb="today:analyze")
+    run(today_view(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from analyze handler"
+    text = q.edits[-1]["text"]
+    assert "STATUS" in text or "Meds" in text or "Bills" in text or "Dates" in text
+
+test("Today: Analyze handler works", test_today_analyze)
+
+
+def test_settings_setpayday():
+    """BUG 4: settings:setpayday saves to DB."""
+    from bot import handle_settings
+    ctx = FakeContext()
+    u = FakeUpdate(cb="settings:setpayday:weekly_friday")
+    run(handle_settings(u, ctx))
+    q = u.callback_query
+    assert q.edits, "No edits from setpayday handler"
+    assert "Payday set" in q.edits[-1]["text"] or "\u2705" in q.edits[-1]["text"]
+    with db() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE chat_id=999 AND key='payday_type'"
+        ).fetchone()
+    assert row and row["value"] == "weekly_friday"
+
+test("Settings: payday picker saves to DB", test_settings_setpayday)
+
+
+def test_callback_data_lengths():
+    """Verify all new callback data strings are within Telegram's 64-byte limit."""
+    from datetime import date
+    d = date.today()
+    callbacks = [
+        f"alter:day:{d.isoformat()}",
+        f"alter:setday:{d.isoformat()}:on",
+        f"alter:setday:{d.isoformat()}:off",
+        f"alter:scope:{d.isoformat()}:on:week",
+        f"alter:scope:{d.isoformat()}:off:perm",
+        "settings:setpayday:weekly_friday",
+        "settings:setpayday:biweekly_friday",
+        "settings:setpayday:first_fifteenth",
+        "settings:setpayday:custom",
+        "today:metime",
+        "today:suggest",
+        "today:analyze",
+    ]
+    for cb in callbacks:
+        assert len(cb.encode('utf-8')) <= 64, f"Callback too long ({len(cb.encode('utf-8'))} bytes): {cb}"
+
+test("All new callback data strings ≤ 64 bytes", test_callback_data_lengths)
+
+
+# ══════════════════════════════════════════════════════════
 # RESULTS
 # ══════════════════════════════════════════════════════════
 

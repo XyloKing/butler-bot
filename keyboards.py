@@ -170,6 +170,11 @@ def today_actions_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📅 Alter Schedule", callback_data="alter:start"),
             InlineKeyboardButton("🔄 Refresh",        callback_data="today:view"),
         ],
+        [
+            InlineKeyboardButton("🏠 Me Time",    callback_data="today:metime"),
+            InlineKeyboardButton("💡 Suggestions", callback_data="today:suggest"),
+        ],
+        [InlineKeyboardButton("📊 Quick Analyze", callback_data="today:analyze")],
         back_button_row(),
     ])
 
@@ -655,6 +660,19 @@ def settings_kb() -> InlineKeyboardMarkup:
     ])
 
 
+def payday_picker_kb() -> InlineKeyboardMarkup:
+    """Pick payday schedule type."""
+    options = [
+        ("💰 Every Friday (weekly)", "weekly_friday"),
+        ("💰 Every Other Friday", "biweekly_friday"),
+        ("💰 1st & 15th of month", "first_fifteenth"),
+        ("💰 Custom day of month", "custom"),
+    ]
+    rows = [[InlineKeyboardButton(label, callback_data=f"settings:setpayday:{val}")] for label, val in options]
+    rows.append([InlineKeyboardButton("⬅️ Settings", callback_data="settings:view")])
+    return InlineKeyboardMarkup(rows)
+
+
 def feature_toggles_kb(toggles: dict) -> InlineKeyboardMarkup:
     """Settings panel showing on/off toggles for each bot feature."""
     features = [
@@ -699,17 +717,26 @@ def override_day_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def alter_schedule_kb() -> InlineKeyboardMarkup:
-    """Alter schedule — quick access from Today/Week view."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏥 Working Today",    callback_data="alter:override_on:0")],
-        [InlineKeyboardButton("🏠 Off Today",        callback_data="alter:override_off:0")],
-        [InlineKeyboardButton("🏥 Working Tomorrow", callback_data="alter:override_on:1")],
-        [InlineKeyboardButton("🏠 Off Tomorrow",     callback_data="alter:override_off:1")],
-        [InlineKeyboardButton("———————————————", callback_data="noop")],
-        [InlineKeyboardButton("📅 Edit Full Schedule", callback_data="settings:schedule")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="today:view")],
-    ])
+def alter_schedule_kb(d: date = None) -> InlineKeyboardMarkup:
+    """Alter schedule — pick any day this week or use quick toggles."""
+    from datetime import timedelta
+    if d is None:
+        d = date.today()
+    start = d - timedelta(days=(d.weekday() + 1) % 7)  # Sunday
+    rows = []
+    row = []
+    for i in range(7):
+        day = start + timedelta(days=i)
+        label = day.strftime("%a %d")
+        row.append(InlineKeyboardButton(label, callback_data=f"alter:day:{day.isoformat()}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("📅 Edit Full Rotation", callback_data="settings:schedule")])
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="today:view")])
+    return InlineKeyboardMarkup(rows)
 
 
 # ── APPOINTMENT TIME PICKER ──
