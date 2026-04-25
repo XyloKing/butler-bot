@@ -58,36 +58,56 @@ async def creds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_field_edit(update, context, "creds", item_id, field)
 
     elif action == "setrenewal":
-        # creds:setrenewal:{id}:{freq}
+        # creds:setrenewal:{id}:{freq|_pick}
         cred_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-        freq = parts[3] if len(parts) > 3 else "1yr"
-        if cred_id and freq != "skip":
+        freq = parts[3] if len(parts) > 3 else "_pick"
+        if not cred_id:
+            return
+        if freq == "_pick" or freq == "skip":
+            # Show the picker (from detail view button)
+            from keyboards import cred_renewal_freq_kb
+            with db() as conn:
+                c = conn.execute("SELECT renewal_frequency FROM credentials WHERE id = ?", (cred_id,)).fetchone()
+            current = dict(c).get("renewal_frequency", "1yr") if c else "1yr"
+            await query.edit_message_text(
+                f"How often does this renew?\nCurrent: {current}",
+                reply_markup=cred_renewal_freq_kb(cred_id),
+            )
+        else:
             with db() as conn:
                 conn.execute(
                     "UPDATE credentials SET renewal_frequency = ? WHERE id = ? AND chat_id = ?",
                     (freq, cred_id, chat_id),
                 )
-        if cred_id:
-            from keyboards import cred_ceu_kb
+            freq_labels = {"1yr": "every year", "2yr": "every 2 years", "3yr": "every 3 years",
+                           "5yr": "every 5 years", "varies": "varies"}
             await query.edit_message_text(
-                "Does this credential require continuing education units (CEUs)?",
-                reply_markup=cred_ceu_kb(cred_id),
+                f"✅ Renewal: {freq_labels.get(freq, freq)}",
+                reply_markup=cred_detail_kb(cred_id),
             )
 
     elif action == "setceu":
-        # creds:setceu:{id}:{yes|no}
+        # creds:setceu:{id}:{yes|no|_pick}
         cred_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-        answer = parts[3] if len(parts) > 3 else "no"
-        if cred_id:
+        answer = parts[3] if len(parts) > 3 else "_pick"
+        if not cred_id:
+            return
+        if answer == "_pick":
+            from keyboards import cred_ceu_kb
+            await query.edit_message_text(
+                "Does this credential require CEUs?",
+                reply_markup=cred_ceu_kb(cred_id),
+            )
+        else:
             ceu_val = 1 if answer == "yes" else 0
             with db() as conn:
                 conn.execute(
                     "UPDATE credentials SET ceu_required = ? WHERE id = ? AND chat_id = ?",
                     (ceu_val, cred_id, chat_id),
                 )
-            ceu_label = "You'll need CEUs to renew." if ceu_val else "No CEUs needed."
+            ceu_label = "Requires CEUs to renew." if ceu_val else "No CEUs required."
             await query.edit_message_text(
-                f"✅ Got it. {ceu_label}",
+                f"✅ {ceu_label}",
                 reply_markup=cred_detail_kb(cred_id),
             )
 
@@ -154,6 +174,11 @@ async def _show_cred_detail(query, chat_id, cred_id):
         lines.append(f"Issuer: {cred['issuing_body']}")
 
     lines.append(f"Expires: {cred['expiry_date']} — {friendly_date(exp)}")
+    renewal_freq = dict(cred).get("renewal_frequency")
+    freq_labels = {"1yr": "every year", "2yr": "every 2 years", "3yr": "every 3 years",
+                   "5yr": "every 5 years", "varies": "varies"}
+    if renewal_freq:
+        lines.append(f"Renews: {freq_labels.get(renewal_freq, renewal_freq)}")
     lines.append(f"Status: {'✅ Renewed' if cred['renewed'] else f'{urg} Active'}")
 
     if cred["ceu_required"]:

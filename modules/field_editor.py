@@ -84,8 +84,40 @@ async def start_field_edit(update: Update, context: ContextTypes.DEFAULT_TYPE,
         )
         return
 
-    # Medication frequency gets button picker
-    if field == "frequency" and module == "meds":
+    # Day-of-month fields get the 1-31 button grid
+    if field == "due_day":
+        from keyboards import due_day_picker_kb
+        await query.edit_message_text(
+            "📅 Which day of the month is it due?",
+            reply_markup=due_day_picker_kb(),
+        )
+        return
+
+    # Frequency fields get frequency picker
+    if field == "frequency" and module == "bills":
+        from keyboards import bill_frequency_picker_kb
+        await query.edit_message_text(
+            "🔄 How often is this bill due?",
+            reply_markup=bill_frequency_picker_kb(item_id),
+        )
+        return
+
+    if field in ("schedule", "frequency") and module == "meds":
+        from keyboards import med_schedule_kb, med_frequency_kb
+        if field == "schedule":
+            await query.edit_message_text(
+                "When do you take this med?",
+                reply_markup=med_schedule_kb(item_id),
+            )
+        else:
+            await query.edit_message_text(
+                "How often do you take this med?",
+                reply_markup=med_frequency_kb(item_id),
+            )
+        return
+
+    # Generic frequency picker (non-meds, non-bills)
+    if field == "frequency":
         from keyboards import frequency_picker_kb
         await query.edit_message_text(
             "How often do you take this medication?",

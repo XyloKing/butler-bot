@@ -88,32 +88,52 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_field_edit(update, context, "meds", item_id, field)
 
     elif action == "setschedule":
-        # meds:setschedule:{id}:{schedule}
         med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-        schedule = parts[3] if len(parts) > 3 else "daily"
-        if med_id:
+        schedule = parts[3] if len(parts) > 3 else "_pick"
+        if not med_id:
+            return
+        if schedule == "_pick":
+            from keyboards import med_schedule_kb
+            with db() as conn:
+                m = conn.execute("SELECT schedule FROM medications WHERE id = ?", (med_id,)).fetchone()
+            current = dict(m).get("schedule", "daily") if m else "daily"
+            await query.edit_message_text(
+                f"When do you take this?\nCurrent: {current}",
+                reply_markup=med_schedule_kb(med_id),
+            )
+        else:
             with db() as conn:
                 conn.execute(
                     "UPDATE medications SET schedule = ? WHERE id = ? AND chat_id = ?",
                     (schedule, med_id, chat_id),
                 )
-            # After schedule, ask frequency
-            from keyboards import med_frequency_kb
             schedule_labels = {
-                "morning": "morning", "midday": "midday", "evening": "evening",
-                "bedtime": "bedtime", "prn": "as needed",
+                "morning": "Morning", "midday": "Midday", "evening": "Evening",
+                "bedtime": "Bedtime", "prn": "As needed",
             }
             label = schedule_labels.get(schedule, schedule)
+            # If coming from add flow (not _pick), proceed to frequency
+            from keyboards import med_frequency_kb
             await query.edit_message_text(
-                f"✅ {label.title()}. How often do you take it?",
+                f"✅ {label}. How often?",
                 reply_markup=med_frequency_kb(med_id),
             )
 
     elif action == "setfreq":
-        # meds:setfreq:{id}:{freq_val}
         med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-        freq_val = parts[3] if len(parts) > 3 else "daily"
-        if med_id:
+        freq_val = parts[3] if len(parts) > 3 else "_pick"
+        if not med_id:
+            return
+        if freq_val == "_pick":
+            from keyboards import med_frequency_kb
+            with db() as conn:
+                m = conn.execute("SELECT frequency FROM medications WHERE id = ?", (med_id,)).fetchone()
+            current = dict(m).get("frequency", "daily") if m else "daily"
+            await query.edit_message_text(
+                f"How often do you take this?\nCurrent: {current}",
+                reply_markup=med_frequency_kb(med_id),
+            )
+        else:
             with db() as conn:
                 conn.execute(
                     "UPDATE medications SET frequency = ? WHERE id = ? AND chat_id = ?",
@@ -125,7 +145,7 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             label = freq_labels.get(freq_val, freq_val)
             await query.edit_message_text(
-                f"✅ {label}. All set.",
+                f"✅ {label}.",
                 reply_markup=med_detail_kb(med_id, False),
             )
 

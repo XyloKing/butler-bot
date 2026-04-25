@@ -408,6 +408,10 @@ def cred_detail_kb(cred_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("📅 Expiry",     callback_data=f"creds:editfield:{cred_id}:expiry_date"),
         ],
         [
+            InlineKeyboardButton("🔄 Renews every", callback_data=f"creds:setrenewal:{cred_id}:_pick"),
+            InlineKeyboardButton("📚 CEUs",        callback_data=f"creds:setceu:{cred_id}:_pick"),
+        ],
+        [
             InlineKeyboardButton("🎯 CEU Req'd",   callback_data=f"creds:editfield:{cred_id}:ceu_required"),
             InlineKeyboardButton("✅ CEU Done",    callback_data=f"creds:editfield:{cred_id}:ceu_completed"),
         ],
@@ -530,7 +534,10 @@ def med_detail_kb(med_id: int, taken: bool) -> InlineKeyboardMarkup:
         InlineKeyboardButton("💊 Dosage",   callback_data=f"meds:editfield:{med_id}:dosage"),
     ])
     rows.append([
-        InlineKeyboardButton("🔄 Frequency", callback_data=f"meds:editfield:{med_id}:frequency"),
+        InlineKeyboardButton("🌅 Schedule",  callback_data=f"meds:setschedule:{med_id}:_pick"),
+        InlineKeyboardButton("🔄 Frequency", callback_data=f"meds:setfreq:{med_id}:_pick"),
+    ])
+    rows.append([
         InlineKeyboardButton("📅 Refill",    callback_data=f"meds:editfield:{med_id}:refill_date"),
     ])
     rows.append([
