@@ -133,7 +133,7 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     elif action == "schedule":
-        # Show available days this week for a date
+        # Show ALL 7 days this week — user picks any day, work or off
         from helpers import is_working
         with db() as conn:
             partner = conn.execute("SELECT * FROM partners WHERE id = ? AND chat_id = ?",
@@ -141,42 +141,40 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         name = partner["name"] if partner else "them"
         d = today()
+        from datetime import timedelta
 
-        # Count dates this week for the 2/week cap
+        # Count dates this week
         from modules.today import _dates_this_week
         dates_this_week = _dates_this_week(chat_id, d)
 
-        # Find free evenings this week — uses is_working() so shift overrides are respected
-        from datetime import timedelta
-        free_days = [
-            d + timedelta(days=i)
-            for i in range(7)
-            if not is_working(chat_id, d + timedelta(days=i))
-        ]
+        # Sunday-first: find start of this week
+        start = d - timedelta(days=(d.weekday() + 1) % 7)
 
-        if free_days:
-            header = f"Free days this week for {name}:\n(Tap to log a date)"
-            if dates_this_week >= 2:
-                header = f"⚠️ You already have {dates_this_week} dates this week (max 2).\n\nSchedule anyway?"
-            elif dates_this_week == 1:
-                header = f"📅 1/2 dates used this week for {name}:"
-            rows = []
-            for fd in free_days[:5]:
-                label = fd.strftime("%A %m/%d")
-                rows.append([InlineKeyboardButton(
-                    f"📅 {label}",
-                    callback_data=f"partners:booked:{item_id}:{fd.isoformat()}"
-                )])
-            rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"partners:detail:{item_id}")])
-            await query.edit_message_text(
-                header,
-                reply_markup=InlineKeyboardMarkup(rows),
-            )
+        # Show all 7 days — label by work status but allow booking any day
+        rows = []
+        for i in range(7):
+            day = start + timedelta(days=i)
+            working = is_working(chat_id, day)
+            work_icon = "🏥" if working else "🏠"
+            work_label = " (work night)" if working else ""
+            label = f"{work_icon} {day.strftime('%a %m/%d')}{work_label}"
+            rows.append([InlineKeyboardButton(
+                label,
+                callback_data=f"partners:booked:{item_id}:{day.isoformat()}"
+            )])
+        rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"partners:detail:{item_id}")])
+
+        if dates_this_week >= 2:
+            header = f"⚠️ 2 dates already this week. You can still add more — no hard cap."
+        elif dates_this_week == 1:
+            header = f"📅 1 date logged this week. Pick a day for {name}:"
         else:
-            await query.edit_message_text(
-                f"Looks like you're working every day this week. 😅\nTry next week?",
-                reply_markup=partner_detail_kb(item_id),
-            )
+            header = f"📅 Pick a day for {name}:\n(Work nights shown — you can still pick those)"
+
+        await query.edit_message_text(
+            header,
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
 
     elif action == "booked":
         partner_id = int(parts[2]) if len(parts) > 2 else None
