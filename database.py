@@ -218,6 +218,28 @@ def _migrate_appointments():
                 else:
                     raise
 
+    # Med schedule column
+    med_migrations = [
+        "ALTER TABLE medications ADD COLUMN schedule TEXT DEFAULT 'daily'",
+    ]
+    with db() as conn:
+        for sql in med_migrations:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower(): raise
+
+    # Credential renewal frequency column
+    cred_migrations = [
+        "ALTER TABLE credentials ADD COLUMN renewal_frequency TEXT DEFAULT '1yr'",
+    ]
+    with db() as conn:
+        for sql in cred_migrations:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower(): raise
+
     # Partner columns migration
     partner_migrations = [
         "ALTER TABLE partners ADD COLUMN relationship_type TEXT",

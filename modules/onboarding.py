@@ -28,7 +28,7 @@ from keyboards import (
     onboard_section_done_kb, onboard_yes_no_kb, onboard_skip_kb,
     onboard_progress_text, main_menu_kb, RELATIONSHIP_TYPES,
     date_pick_month_kb, date_pick_day_kb,
-    onboard_car_type_kb, onboard_bill_frequency_kb,
+    onboard_car_type_kb, onboard_bill_frequency_kb, onboard_payday_kb,
 )
 
 logger = logging.getLogger(__name__)
@@ -905,25 +905,55 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                 reply_markup=onboard_skip_kb(),
             )
         else:
-            update_user(chat_id, onboard_step="bills_intro")
+            # Payday first, then bills
+            update_user(chat_id, onboard_step="payday_intro")
             await query.edit_message_text(
                 f"{onboard_progress_text('bills_intro')}\n\n"
-                "People saved. Next: bills and money.",
-                reply_markup=onboard_section_done_kb("bills_intro",
-                                                     back_section="partners"),
+                "When do you get paid?",
+                reply_markup=onboard_payday_kb(),
             )
         return
 
     # ── Bills Intro ──────────────────────────────────────────
+    if action == "payday_intro":
+        update_user(chat_id, onboard_step="payday_intro")
+        await query.edit_message_text(
+            f"{onboard_progress_text('bills_intro')}\n\n"
+            "When do you get paid?",
+            reply_markup=onboard_payday_kb(),
+        )
+        return
+
+    if action == "payday":
+        # onboard:payday:{type}
+        ptype = parts[2] if len(parts) > 2 else "skip"
+        if ptype != "skip":
+            with db() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'payday_type', ?)",
+                    (chat_id, ptype),
+                )
+        # Advance to bills
+        update_user(chat_id, onboard_step="bills_intro")
+        await query.edit_message_text(
+            f"{onboard_progress_text('bills_intro')}\n\n"
+            "Want to add your recurring bills?\n"
+            "I'll remind you around payday and check in until they're handled.\n\n"
+            "You can always add more later.",
+            reply_markup=onboard_yes_no_kb("onboard:add_bills",
+                                           back_section="payday_intro"),
+        )
+        return
+
     if action == "bills_intro":
         update_user(chat_id, onboard_step="bills_intro")
         await query.edit_message_text(
             f"{onboard_progress_text('bills_intro')}\n\n"
-            "Want to add your bills now?\n"
-            "I'll remind you on payday and nag until they're paid.\n\n"
+            "Want to add your recurring bills?\n"
+            "I'll remind you around payday until they're handled.\n\n"
             "You can always add more later.",
             reply_markup=onboard_yes_no_kb("onboard:add_bills",
-                                           back_section="partners"),
+                                           back_section="payday_intro"),
         )
         return
 

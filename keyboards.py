@@ -382,6 +382,65 @@ def cred_detail_kb(cred_id: int) -> InlineKeyboardMarkup:
 
 # ── MEDICATIONS ──
 
+def med_schedule_kb(med_id: int) -> InlineKeyboardMarkup:
+    """When should this med be taken?"""
+    options = [
+        ("🌅 Morning",           f"meds:setschedule:{med_id}:morning"),
+        ("☀️ Midday",             f"meds:setschedule:{med_id}:midday"),
+        ("🌆 Evening",           f"meds:setschedule:{med_id}:evening"),
+        ("🌙 Bedtime",           f"meds:setschedule:{med_id}:bedtime"),
+        ("⏰ As needed (PRN)",    f"meds:setschedule:{med_id}:prn"),
+        ("⏭ Skip for now",         f"meds:detail:{med_id}"),
+    ]
+    return InlineKeyboardMarkup([[InlineKeyboardButton(l, callback_data=c)] for l, c in options])
+
+
+def med_frequency_kb(med_id: int) -> InlineKeyboardMarkup:
+    """How often is this med taken?"""
+    options = [
+        ("Every day",              f"meds:setfreq:{med_id}:daily"),
+        ("Twice a day",            f"meds:setfreq:{med_id}:twice_daily"),
+        ("Every other day",        f"meds:setfreq:{med_id}:every_other"),
+        ("Weekly",                 f"meds:setfreq:{med_id}:weekly"),
+        ("As needed (PRN)",        f"meds:setfreq:{med_id}:prn"),
+        ("⏭ Skip for now",         f"meds:detail:{med_id}"),
+    ]
+    return InlineKeyboardMarkup([[InlineKeyboardButton(l, callback_data=c)] for l, c in options])
+
+
+def cred_renewal_freq_kb(cred_id: int) -> InlineKeyboardMarkup:
+    """How often does this credential need to be renewed?"""
+    options = [
+        ("Every year",             f"creds:setrenewal:{cred_id}:1yr"),
+        ("Every 2 years",          f"creds:setrenewal:{cred_id}:2yr"),
+        ("Every 3 years",          f"creds:setrenewal:{cred_id}:3yr"),
+        ("Every 5 years",          f"creds:setrenewal:{cred_id}:5yr"),
+        ("Varies / doesn't expire",f"creds:setrenewal:{cred_id}:varies"),
+        ("⏭ Skip for now",         f"creds:detail:{cred_id}"),
+    ]
+    return InlineKeyboardMarkup([[InlineKeyboardButton(l, callback_data=c)] for l, c in options])
+
+
+def cred_ceu_kb(cred_id: int) -> InlineKeyboardMarkup:
+    """Does this credential require continuing education units?"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Yes, requires CEUs",    callback_data=f"creds:setceu:{cred_id}:yes")],
+        [InlineKeyboardButton("No CEUs required",      callback_data=f"creds:setceu:{cred_id}:no")],
+        [InlineKeyboardButton("⏭ Skip",                callback_data=f"creds:detail:{cred_id}")],
+    ])
+
+
+def onboard_payday_kb() -> InlineKeyboardMarkup:
+    """Payday schedule picker for onboarding."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Every Friday (weekly)",    callback_data="onboard:payday:weekly_friday")],
+        [InlineKeyboardButton("Every other Friday",       callback_data="onboard:payday:biweekly_friday")],
+        [InlineKeyboardButton("1st and 15th of month",   callback_data="onboard:payday:first_fifteenth")],
+        [InlineKeyboardButton("Once a month",            callback_data="onboard:payday:monthly")],
+        [InlineKeyboardButton("I’m not sure / skip",     callback_data="onboard:payday:skip")],
+    ])
+
+
 def meds_list_kb(meds: list[dict]) -> InlineKeyboardMarkup:
     rows = []
     for m in meds:

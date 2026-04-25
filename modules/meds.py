@@ -87,6 +87,28 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from modules.field_editor import start_field_edit
         await start_field_edit(update, context, "meds", item_id, field)
 
+    elif action == "setschedule":
+        # meds:setschedule:{id}:{schedule}
+        med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        schedule = parts[3] if len(parts) > 3 else "daily"
+        if med_id:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE medications SET schedule = ? WHERE id = ? AND chat_id = ?",
+                    (schedule, med_id, chat_id),
+                )
+            # After schedule, ask frequency
+            from keyboards import med_frequency_kb
+            schedule_labels = {
+                "morning": "morning", "midday": "midday", "evening": "evening",
+                "bedtime": "bedtime", "prn": "as needed",
+            }
+            label = schedule_labels.get(schedule, schedule)
+            await query.edit_message_text(
+                f"✅ {label.title()}. How often do you take it?",
+                reply_markup=med_frequency_kb(med_id),
+            )
+
     elif action == "setfreq":
         # meds:setfreq:{id}:{freq_val}
         med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
@@ -97,8 +119,13 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "UPDATE medications SET frequency = ? WHERE id = ? AND chat_id = ?",
                     (freq_val, med_id, chat_id),
                 )
+            freq_labels = {
+                "daily": "Every day", "twice_daily": "Twice a day",
+                "every_other": "Every other day", "weekly": "Weekly", "prn": "As needed",
+            }
+            label = freq_labels.get(freq_val, freq_val)
             await query.edit_message_text(
-                f"✅ Frequency updated to: {freq_val.replace('_', ' ')}",
+                f"✅ {label}. All set.",
                 reply_markup=med_detail_kb(med_id, False),
             )
 
@@ -187,6 +214,7 @@ async def handle_med_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         dosage = text if text.lower() != "skip" else None
         context.user_data["awaiting"] = None
 
+        # Save name+dosage to DB now, then ask schedule via buttons
         with db() as conn:
             cursor = conn.execute(
                 "INSERT INTO medications (chat_id, name, dosage) VALUES (?, ?, ?)",
@@ -194,10 +222,11 @@ async def handle_med_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             med_id = cursor.lastrowid
 
-        dosage_str = f" ({dosage})" if dosage else ""
+        from keyboards import med_schedule_kb
+        dosage_str = f" {dosage}" if dosage else ""
         await update.message.reply_text(
-            f"✅ Added: {name}{dosage_str}",
-            reply_markup=med_detail_kb(med_id, False),
+            f"Added {name}{dosage_str}. When do you take it?",
+            reply_markup=med_schedule_kb(med_id),
         )
         return True
 
