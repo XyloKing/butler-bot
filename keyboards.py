@@ -473,6 +473,25 @@ def cred_ceu_kb(cred_id: int) -> InlineKeyboardMarkup:
     ])
 
 
+def touch_frequency_kb(current: int = 2) -> InlineKeyboardMarkup:
+    """How often should Maurice check in per day?"""
+    options = [
+        (1, "Once a day"),
+        (2, "Twice a day"),
+        (3, "3x a day"),
+        (4, "4x a day"),
+        (6, "6x a day"),
+        (8, "8x a day"),
+        (0, "Never (I'll open it myself)"),
+    ]
+    rows = []
+    for val, label in options:
+        check = " ✓" if val == current else ""
+        rows.append([InlineKeyboardButton(f"{label}{check}", callback_data=f"settings:settouches:{val}")])
+    rows.append([InlineKeyboardButton("⬅️ Settings", callback_data="settings:view")])
+    return InlineKeyboardMarkup(rows)
+
+
 def onboard_payday_kb() -> InlineKeyboardMarkup:
     """Payday schedule picker for onboarding."""
     return InlineKeyboardMarkup([
@@ -781,6 +800,7 @@ def settings_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📅 Override Shift Day",  callback_data="settings:override")],
         [InlineKeyboardButton("💰 Payday Settings",    callback_data="settings:payday")],
         [InlineKeyboardButton("🛠 Feature Toggles",    callback_data="settings:toggles")],
+        [InlineKeyboardButton("💬 Check-in Frequency",  callback_data="settings:touches")],
         [InlineKeyboardButton("🔄 Re-run Onboarding",  callback_data="onboard:start")],
         back_button_row(),
     ])

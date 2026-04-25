@@ -650,7 +650,7 @@ section("HEARTBEAT & PROACTIVE FEATURES")
 
 def test_heartbeat_no_data():
     """Heartbeat should not crash with an empty user (no meds, no bills, no appointments)."""
-    from modules.scheduler import _send_heartbeat, _most_urgent_item
+    from modules.scheduler import _send_touch, _most_urgent_item
     from datetime import date
 
     ensure_user(444, "HeartbeatUser")

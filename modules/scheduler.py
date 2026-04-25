@@ -39,59 +39,62 @@ def _onboarded_users():
 
 # ── Morning heartbeat (3 PM ET = wake time for 7p-7a) ───
 
+def _touch_frequency(chat_id: int) -> int:
+    """How many touches per day does this user want? Default 2."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE chat_id = ? AND key = 'touch_frequency'",
+            (chat_id,)
+        ).fetchone()
+    try:
+        return int(row["value"]) if row else 2
+    except (ValueError, TypeError):
+        return 2
+
+
 async def morning_heartbeat(context: ContextTypes.DEFAULT_TYPE):
-    """Proactive good-morning message at the user's wake time."""
+    """First daily touch at 3 PM ET (wake time for night shift workers)."""
     logger.info("Sending morning heartbeat")
     for user in _onboarded_users():
         chat_id = user["chat_id"]
         if not _toggle_on(chat_id, "morning_heartbeat"):
             continue
         try:
-            await _send_heartbeat(context, chat_id)
+            await _send_touch(context, chat_id)
         except Exception as e:
             logger.error(f"Heartbeat failed for {chat_id}: {e}")
 
 
-async def _send_heartbeat(context, chat_id):
+async def evening_touch(context: ContextTypes.DEFAULT_TYPE):
+    """Second daily touch at 10 PM ET (start of work window)."""
+    logger.info("Sending evening touch")
+    for user in _onboarded_users():
+        chat_id = user["chat_id"]
+        if not _toggle_on(chat_id, "evening_checkin"):
+            continue
+        if _touch_frequency(chat_id) < 2:
+            continue
+        try:
+            await _send_touch(context, chat_id)
+        except Exception as e:
+            logger.error(f"Evening touch failed for {chat_id}: {e}")
+
+
+async def _send_touch(context, chat_id):
+    """A phrase + most urgent item. Used for all proactive touches."""
+    from modules.phrases import get_phrase, get_neutral_phrase
     d = today()
 
-    working_tonight = is_working(chat_id, d)
-    worked_yesterday = is_working(chat_id, d - timedelta(days=1))
-    is_transition = worked_yesterday and not working_tonight
+    working = is_working(chat_id, d)
+    recovery = not working and is_working(chat_id, d - timedelta(days=1))
 
+    phrase = get_phrase(working_tonight=working, recovery=recovery)
     urgent = _most_urgent_item(chat_id, d)
 
-    if is_transition:
-        opener = random.choice([
-            "Recovery day. Take it easy.",
-            "Easy one today — you earned it.",
-            "Off day after a shift. Rest first.",
-        ])
-    elif working_tonight:
-        opener = random.choice([
-            "Work night ahead.",
-            "Shift tonight. Let's see what's on.",
-            "You're on tonight.",
-        ])
-    else:
-        opener = random.choice([
-            "Day off. How's it looking?",
-            "Free day. Anything you want on your radar?",
-            "No shift today.",
-        ])
-
-    lines = [opener, ""]
-
-    if is_transition:
-        lines.append("Transition day heads up: keep tasks light if you can. Your sleep rhythm is adjusting.")
-        lines.append("")
-
+    lines = [phrase]
     if urgent:
-        lines.append(f"One thing worth knowing: {urgent}")
         lines.append("")
-        lines.append("Say anything or tap below.")
-    else:
-        lines.append("Nothing urgent. You're ahead of it.")
+        lines.append(urgent)
 
     await context.bot.send_message(
         chat_id=chat_id,

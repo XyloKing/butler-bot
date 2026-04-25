@@ -44,7 +44,7 @@ from modules.field_editor import handle_field_edit_text
 from modules.scheduler import (
     daily_reset, afternoon_digest, evening_checkin,
     med_nag, bill_nag, weekly_digest, appointment_reminder_check,
-    morning_heartbeat,
+    morning_heartbeat, evening_touch,
 )
 
 logging.basicConfig(
@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.6.0"
+BOT_VERSION = "2.7.0"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -555,6 +555,41 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=settings_kb(),
         )
 
+    elif action == "touches":
+        from keyboards import touch_frequency_kb
+        from database import db
+        with db() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE chat_id = ? AND key = 'touch_frequency'",
+                (chat_id,)
+            ).fetchone()
+        current = int(row["value"]) if row else 2
+        label = {0: "Never", 1: "Once", 2: "Twice", 3: "3x", 4: "4x", 6: "6x", 8: "8x"}.get(current, f"{current}x")
+        await query.edit_message_text(
+            f"💬 CHECK-IN FREQUENCY\n\nCurrently: {label} a day\n\n"
+            "How often do you want Maurice to reach out?",
+            reply_markup=touch_frequency_kb(current),
+        )
+
+    elif action == "settouches":
+        freq = parts[2] if len(parts) > 2 else "2"
+        try:
+            freq_int = int(freq)
+        except ValueError:
+            freq_int = 2
+        from database import db
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'touch_frequency', ?)",
+                (chat_id, str(freq_int)),
+            )
+        from keyboards import touch_frequency_kb
+        label = {0: "Never", 1: "Once", 2: "Twice", 3: "3x", 4: "4x", 6: "6x", 8: "8x"}.get(freq_int, f"{freq_int}x")
+        await query.edit_message_text(
+            f"✅ Set to {label} a day.",
+            reply_markup=touch_frequency_kb(freq_int),
+        )
+
     elif action == "toggles":
         from keyboards import feature_toggles_kb
         from database import db
@@ -686,8 +721,10 @@ def setup_jobs(app):
         name="weekly_digest",
     )
 
-    # Morning heartbeat at 3 PM ET (wake time for 7p-7a workers)
+    # Daily touches: morning at 3 PM ET, evening at 10 PM ET
+    # Frequency controlled per-user via settings:touches
     jq.run_daily(morning_heartbeat, time=dt_time(15, 0, tzinfo=tz), name="morning_heartbeat")
+    jq.run_daily(evening_touch, time=dt_time(22, 0, tzinfo=tz), name="evening_touch")
 
     # Appointment reminders — hourly during notification window (5 AM - 5 PM ET)
     for hour in range(5, 17):
