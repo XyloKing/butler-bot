@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- WORK SCHEDULE
+CREATE TABLE IF NOT EXISTS me_time_logs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id      INTEGER NOT NULL REFERENCES users(chat_id),
+    activity     TEXT    NOT NULL,          -- gaming, music, rest, social, outdoors, creative, other
+    duration_hr  REAL    DEFAULT 1.0,      -- hours spent
+    notes        TEXT,
+    logged_at    TEXT    DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS shifts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id     INTEGER NOT NULL REFERENCES users(chat_id),

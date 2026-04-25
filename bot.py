@@ -33,6 +33,7 @@ from modules.week_view import week_callback
 from modules.bills import bills_callback, handle_bill_text
 from modules.partners import partners_callback, handle_partner_text, partner_date_picker_callback
 from modules.date_picker import datepick_callback
+from modules.me_time import metime_callback
 from modules.car import car_callback, handle_car_text, car_datepick_callback
 from modules.credentials import creds_callback, handle_cred_text, cred_datepick_callback
 from modules.meds import meds_callback, handle_med_text
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.5.3"
+BOT_VERSION = "2.6.0"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -205,6 +206,7 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "datepick":  datepick_callback,
         "pdatepick": partner_date_picker_callback,
         "alter":     handle_alter_schedule,
+        "metime":    metime_callback,
         "cardp":     car_datepick_callback,
         "creddp":    cred_datepick_callback,
         "apptdp":    appt_datepick_callback,

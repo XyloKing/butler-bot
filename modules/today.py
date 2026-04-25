@@ -38,7 +38,8 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = query.data.split(":")
         action = parts[1] if len(parts) > 1 else "view"
         if action == "metime":
-            await _handle_metime(query, chat_id)
+            from modules.me_time import _show_metime_view
+            await _show_metime_view(query, chat_id)
             return
         if action == "suggest":
             await _handle_suggest(query, chat_id)
@@ -349,9 +350,20 @@ async def _handle_analyze(query, chat_id):
         total = sum((b["amount"] or 0) for b in unpaid)
         lines.append(f"💸 Bills: {len(unpaid)} unpaid ({format_money(total)})")
 
+    # Me-time
+    from modules.me_time import _days_since_metime, _hours_this_week
+    me_days_since = _days_since_metime(chat_id, d)
+    me_hours_week = _hours_this_week(chat_id, d)
+    if me_days_since is None:
+        lines.append("🏠 Me time: none logged yet")
+    elif me_days_since == 0:
+        lines.append(f"🏠 Me time: today ({me_hours_week:.1f} hrs this week)")
+    else:
+        lines.append(f"🏠 Me time: {me_days_since}d ago ({me_hours_week:.1f} hrs this week)")
+
     # Dates this week
     dates_count = _dates_this_week(chat_id, d)
-    lines.append(f"📅 Dates this week: {dates_count}/2")
+    lines.append(f"📅 Dates this week: {dates_count}")
 
     # Credentials expiring within 90 days
     with db() as conn:

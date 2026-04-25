@@ -251,21 +251,26 @@ def _partner_nudge(chat_id, d):
 
 
 def _me_time_nudge(chat_id, d):
-    """Check if the user has had any logged me-time recently."""
-    # Me-time is logged as partner_dates or notes with "me time" content
-    # For now, check if last 7 days had no off days at all (all work)
-    working_days = sum(1 for i in range(7) if is_working(chat_id, d - timedelta(days=i)))
-    if working_days >= 6:
+    """Check logged me-time data. Flag if overdue."""
+    from modules.me_time import _days_since_metime, _hours_this_week
+    days_since = _days_since_metime(chat_id, d)
+    hours_this_week = _hours_this_week(chat_id, d)
+
+    if days_since is None:
+        # Never logged me-time
         return random.choice([
-            "🏠 You've barely had a day off lately. Protect the next one.",
-            "🏠 When's your next actual day off? Put something good on it.",
-            "🏠 Heavy week. Me-time next chance you get.",
+            "🏠 You haven't logged any me-time yet. Use the Me Time button.",
+            "🏠 Personal time matters. Start tracking it — tap Me Time.",
         ])
-    # Check if the user has recent off days but no notes or dates
-    # If they have off days, encourage using them
-    off_days = 7 - working_days
-    if off_days >= 2:
-        return None  # Doing OK
+    if days_since >= 5:
+        return random.choice([
+            f"🏠 {days_since} days since your last me-time. That's too long.",
+            f"🏠 You logged me-time {days_since} days ago. Time to recharge.",
+        ])
+    if days_since >= 3:
+        return "🏠 Been a few days since personal time. Don't let it slide."
+    if hours_this_week < 2:
+        return "🏠 Only light me-time this week. Try to carve out a real window."
     return None
 
 

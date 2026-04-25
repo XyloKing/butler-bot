@@ -160,6 +160,49 @@ def back_button_row() -> list[InlineKeyboardButton]:
 
 # ── TODAY / TONIGHT ──
 
+def metime_log_activity_kb() -> InlineKeyboardMarkup:
+    """Pick what you did for me-time."""
+    activities = [
+        ("🎮 Gaming",      "gaming"),
+        ("🎵 Music",       "music"),
+        ("🛋️ Rest",        "rest"),
+        ("🏕️ Outside",    "outdoors"),
+        ("🎨 Creative",    "creative"),
+        ("📺 Movie/Show",  "media"),
+        ("📚 Reading",     "reading"),
+        ("👫 Social",      "social"),
+        ("✅ Other",        "other"),
+    ]
+    rows = []
+    row = []
+    for label, val in activities:
+        row.append(InlineKeyboardButton(label, callback_data=f"metime:log:{val}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="today:metime")])
+    return InlineKeyboardMarkup(rows)
+
+
+def metime_log_duration_kb(activity: str) -> InlineKeyboardMarkup:
+    """Pick how long you spent."""
+    durations = [("30 min", 0.5), ("1 hr", 1), ("2 hrs", 2), ("3 hrs", 3), ("4+ hrs", 4)]
+    rows = [[InlineKeyboardButton(label, callback_data=f"metime:dur:{activity}:{val}") for label, val in durations]]
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="metime:start")])
+    return InlineKeyboardMarkup(rows)
+
+
+def metime_view_kb() -> InlineKeyboardMarkup:
+    """Me-time main view buttons."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Log Me Time",    callback_data="metime:start")],
+        [InlineKeyboardButton("📊 History",       callback_data="metime:history")],
+        [InlineKeyboardButton("⬅️ Back",          callback_data="today:view")],
+    ])
+
+
 def today_actions_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
