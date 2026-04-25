@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.7.1"
+BOT_VERSION = "2.7.2"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -71,21 +71,35 @@ async def _version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """The /menu command — main entry point."""
-    from database import ensure_user
+    from database import ensure_user, get_user, update_user, db
     chat_id = update.effective_chat.id
     name = update.effective_user.first_name
     is_onboarded = ensure_user(chat_id, name)
 
     if not is_onboarded:
-        await start_command(update, context)
-        return
+        # Check if they actually have data — if so, just unlock the menu.
+        # This covers the case where someone hit Menu mid-onboarding.
+        with db() as conn:
+            has_data = any([
+                conn.execute("SELECT 1 FROM partners WHERE chat_id = ? LIMIT 1", (chat_id,)).fetchone(),
+                conn.execute("SELECT 1 FROM bills WHERE chat_id = ? LIMIT 1", (chat_id,)).fetchone(),
+                conn.execute("SELECT 1 FROM medications WHERE chat_id = ? LIMIT 1", (chat_id,)).fetchone(),
+                conn.execute("SELECT 1 FROM credentials WHERE chat_id = ? LIMIT 1", (chat_id,)).fetchone(),
+            ])
+        if has_data:
+            # They have real data. Mark them onboarded and show the menu.
+            update_user(chat_id, onboarded=1, onboard_step=None)
+            is_onboarded = True
+        else:
+            await start_command(update, context)
+            return
 
     # Clear any stale input state so we start fresh
     _clear_input_state(context)
-    await update.message.reply_text(
-        "What do you need? 🫡",
-        reply_markup=main_menu_kb(),
-    )
+    user = get_user(chat_id)
+    display = user["display_name"] if user and user["display_name"] else None
+    greeting = f"What do you need, {display}? 🫡" if display else "What do you need? 🫡"
+    await update.message.reply_text(greeting, reply_markup=main_menu_kb())
 
 
 # ── CALLBACK ROUTER — all button presses go here ──
