@@ -177,6 +177,19 @@ CREATE TABLE IF NOT EXISTS settings (
     value   TEXT,
     PRIMARY KEY (chat_id, key)
 );
+
+-- WELLNESS EVENTS (silent neutral log — drives pattern detection)
+CREATE TABLE IF NOT EXISTS wellness_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    category    TEXT    NOT NULL,   -- meds | bills | me_time | dates | credentials | car | notes
+    event_type  TEXT    NOT NULL,   -- taken | skipped | paid | unpaid | logged | missed
+    ref_id      INTEGER,
+    context     TEXT,                 -- JSON blob: day_of_week, shift_day, hour, etc.
+    logged_at   TEXT    DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_wellness_events_chat_cat
+    ON wellness_events(chat_id, category, logged_at);
 """
 
 
@@ -271,6 +284,26 @@ def _migrate_appointments():
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e).lower():
                 raise
+
+    # Wellness events table — pre-existing DBs may not have it yet
+    with db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wellness_events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id     INTEGER NOT NULL,
+                category    TEXT    NOT NULL,
+                event_type  TEXT    NOT NULL,
+                ref_id      INTEGER,
+                context     TEXT,
+                logged_at   TEXT    DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wellness_events_chat_cat "
+            "ON wellness_events(chat_id, category, logged_at)"
+        )
 
 
 def ensure_user(chat_id: int, name: str = None):

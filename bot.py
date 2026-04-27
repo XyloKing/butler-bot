@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.7.4"
+BOT_VERSION = "2.7.5"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -708,13 +708,31 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     for handler in handlers:
-        consumed = await handler(update, context)
+        try:
+            consumed = await handler(update, context)
+        except Exception as e:
+            # Handler crashed mid-flow. Log it but DON'T fall through to menu —
+            # that was the original bug where a crash made the bot show the menu
+            # in place of the expected response (e.g. bill name → main menu).
+            logger.error(
+                f"Handler {handler.__name__} crashed on text '{update.message.text[:30]}': {e}",
+                exc_info=True
+            )
+            # Clear onboard_step so the next text doesn't re-trigger onboarding recovery
+            from database import update_user as _uu
+            _uu(update.effective_chat.id, onboard_step=None)
+            await update.message.reply_text(
+                "Something went sideways. Tap wherever you left off or type /menu."
+            )
+            return
         if consumed:
             return
 
-    # No module claimed it — show menu hint
+    # No module claimed this text — clear any stale onboard_step before showing menu
+    from database import update_user
+    update_user(update.effective_chat.id, onboard_step=None)
     await update.message.reply_text(
-        "Tap /menu to get started, or use the buttons above. 🫡",
+        "Not sure what to do with that. Tap a button or type /menu.",
         reply_markup=main_menu_kb(),
     )
 
