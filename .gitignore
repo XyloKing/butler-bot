@@ -8,3 +8,15 @@ nohup.out
 skills/
 test_appts_thorough.db
 test_butler.db
+
+# Internal planning docs (not for public repo)
+FIX-PLAN.md
+FULL-GAP-ANALYSIS.md
+QA-REPORT.md
+TRACK_*.md
+research-*.md
+code-audit.md
+*.txt
+
+# Engineering hooks (not needed for deployment)
+.claude/

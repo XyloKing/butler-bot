@@ -923,6 +923,185 @@ test("Cancel buttons present on all text-input prompts", test_cancel_buttons_on_
 
 
 # ══════════════════════════════════════════════════════════
+# WELLNESS STATE ENGINE
+# ══════════════════════════════════════════════════════════
+section("WELLNESS STATE ENGINE")
+
+# Shame words that must NEVER appear in any user-facing wellness output.
+SHAME_WORDS = ("missed", "failed", "broke", "overdue", "haven't done")
+
+
+def test_wellness_table_exists():
+    with db() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='wellness_events'"
+        ).fetchone()
+    assert row is not None, "wellness_events table not created"
+
+test("Wellness: events table exists", test_wellness_table_exists)
+
+
+def test_wellness_log_event():
+    from modules.wellness import log_event
+    with db() as conn:
+        before = conn.execute(
+            "SELECT COUNT(*) c FROM wellness_events WHERE chat_id = 999 AND category = 'meds'"
+        ).fetchone()["c"]
+    log_event(999, "meds", "taken", ref_id=1)
+    log_event(999, "meds", "taken", ref_id=2)
+    log_event(999, "meds", "taken", ref_id=3)
+    with db() as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) c FROM wellness_events WHERE chat_id = 999 AND category = 'meds'"
+        ).fetchone()["c"]
+    assert after - before == 3, f"expected 3 new med events, got {after - before}"
+
+test("Wellness: log_event records 3 meds:taken events", test_wellness_log_event)
+
+
+def test_wellness_log_event_invalid_category():
+    from modules.wellness import log_event
+    log_event(999, "not_a_thing", "taken")
+    with db() as conn:
+        bad = conn.execute(
+            "SELECT COUNT(*) c FROM wellness_events WHERE category = 'not_a_thing'"
+        ).fetchone()["c"]
+    assert bad == 0, "invalid category should not be persisted"
+
+test("Wellness: invalid category is silently dropped", test_wellness_log_event_invalid_category)
+
+
+def test_wellness_pattern_basic():
+    from modules.wellness import get_pattern
+    pat = get_pattern(999, "meds", days=7)
+    assert pat["positive"] >= 3, f"expected at least 3 positive events, got {pat}"
+    assert pat["last_positive"] is not None
+    assert isinstance(pat["day_of_week_pattern"], dict)
+
+test("Wellness: get_pattern returns positive count + last_positive", test_wellness_pattern_basic)
+
+
+def test_wellness_insight_after_gap():
+    """Three takes 6+ days ago, then nothing — should produce a curious string."""
+    from modules.wellness import get_insight
+    cid = 9001
+    ensure_user(cid, "GapUser")
+    update_user(cid, onboarded=1)
+    with db() as conn:
+        conn.execute("DELETE FROM wellness_events WHERE chat_id = ?", (cid,))
+        conn.execute("DELETE FROM medications WHERE chat_id = ?", (cid,))
+        conn.execute(
+            "INSERT INTO medications (chat_id, name, dosage) VALUES (?, 'Test', '10mg')",
+            (cid,),
+        )
+        for offset in (6, 7, 8):
+            conn.execute(
+                "INSERT INTO wellness_events (chat_id, category, event_type, logged_at) "
+                "VALUES (?, 'meds', 'taken', datetime('now', ?))",
+                (cid, f"-{offset} days"),
+            )
+    insight = get_insight(cid)
+    assert insight is not None, "expected a curious insight after a 5+ day gap"
+    assert isinstance(insight, str) and insight.strip()
+    for w in SHAME_WORDS:
+        assert w not in insight.lower(), f"insight uses shame word {w!r}: {insight!r}"
+
+test("Wellness: insight after multi-day gap returns non-shaming string", test_wellness_insight_after_gap)
+
+
+def test_recovery_mode_toggle():
+    from modules.wellness import is_recovery_mode, set_recovery_mode
+    cid = 9002
+    ensure_user(cid, "RecoveryUser")
+    assert is_recovery_mode(cid) is False, "recovery should default off"
+    set_recovery_mode(cid, True)
+    assert is_recovery_mode(cid) is True
+    set_recovery_mode(cid, False)
+    assert is_recovery_mode(cid) is False
+
+test("Wellness: recovery mode toggles on and off", test_recovery_mode_toggle)
+
+
+def test_recovery_mode_button_in_today_actions():
+    from keyboards import today_actions_kb
+    kb = today_actions_kb()
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row if b.callback_data]
+    assert "today:recovery" in cbs, f"recovery button missing: {cbs}"
+
+test("Wellness: today_actions_kb includes recovery toggle", test_recovery_mode_button_in_today_actions)
+
+
+def test_recovery_mode_callback_flow():
+    from modules.today import today_view
+    from modules.wellness import is_recovery_mode, set_recovery_mode
+    ctx = FakeContext()
+    cid = 9003
+    ensure_user(cid, "RecoveryFlow")
+    update_user(cid, onboarded=1)
+    set_recovery_mode(cid, False)
+
+    u = FakeUpdate(cb="today:recovery", cid=cid)
+    run(today_view(u, ctx))
+    assert is_recovery_mode(cid) is True
+    msg = u.callback_query.edits[-1]["text"]
+    assert "Recovery mode on" in msg, f"on-message wrong: {msg!r}"
+
+    u2 = FakeUpdate(cb="today:recovery", cid=cid)
+    run(today_view(u2, ctx))
+    assert is_recovery_mode(cid) is False
+    msg2 = u2.callback_query.edits[-1]["text"]
+    assert "full mode" in msg2.lower(), f"off-message wrong: {msg2!r}"
+
+test("Wellness: recovery toggle callback flips state and message", test_recovery_mode_callback_flow)
+
+
+def test_recovery_mode_softens_suggestions():
+    from modules.suggestions import get_suggestions
+    from modules.wellness import set_recovery_mode
+    cid = 9004
+    ensure_user(cid, "SoftSuggest")
+    update_user(cid, onboarded=1)
+    set_recovery_mode(cid, True)
+    out = get_suggestions(cid, "afternoon")
+    assert isinstance(out, list)
+    assert len(out) <= 2, f"recovery should return ≤2 suggestions, got {out}"
+    set_recovery_mode(cid, False)
+
+test("Wellness: recovery mode caps suggestions at 2 gentle items", test_recovery_mode_softens_suggestions)
+
+
+def test_meds_taken_logs_wellness_event():
+    from modules.meds import meds_callback
+    cid = 9005
+    ensure_user(cid, "MedsLog")
+    update_user(cid, onboarded=1)
+    with db() as conn:
+        conn.execute("DELETE FROM medications WHERE chat_id = ?", (cid,))
+        conn.execute("DELETE FROM wellness_events WHERE chat_id = ?", (cid,))
+        conn.execute(
+            "INSERT INTO medications (chat_id, name, dosage) VALUES (?, 'A', '1mg')",
+            (cid,),
+        )
+        conn.execute(
+            "INSERT INTO medications (chat_id, name, dosage) VALUES (?, 'B', '2mg')",
+            (cid,),
+        )
+    ctx = FakeContext()
+    u = FakeUpdate(cb="meds:taken", cid=cid)
+    run(meds_callback(u, ctx))
+    with db() as conn:
+        events = conn.execute(
+            "SELECT event_type FROM wellness_events WHERE chat_id = ? AND category = 'meds'",
+            (cid,),
+        ).fetchall()
+    types = [e["event_type"] for e in events]
+    assert types.count("taken") == 2, f"expected 2 taken events, got {types}"
+
+test("Wellness: meds:taken writes events for each untaken med", test_meds_taken_logs_wellness_event)
+
+
+
+# ══════════════════════════════════════════════════════════
 # RESULTS
 # ══════════════════════════════════════════════════════════
 
