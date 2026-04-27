@@ -5,6 +5,7 @@
 💊 Medications module.
 Daily check-ins, aggressive until confirmed taken.
 """
+import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
