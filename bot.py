@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.7.2"
+BOT_VERSION = "2.7.3"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -94,8 +94,9 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await start_command(update, context)
             return
 
-    # Clear any stale input state so we start fresh
+    # Clear ALL state — memory and DB onboard_step
     _clear_input_state(context)
+    update_user(chat_id, onboard_step=None)
     user = get_user(chat_id)
     display = user["display_name"] if user and user["display_name"] else None
     greeting = f"What do you need, {display}? 🫡" if display else "What do you need? 🫡"
@@ -253,8 +254,12 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import random
     query = update.callback_query
     await query.answer()
-    # Ensure all input state is wiped when returning to menu
+    chat_id = query.message.chat_id
+    # Wipe ALL input state — both memory AND DB onboard_step
+    # This prevents onboarding bleed-over when user exits mid-flow
     _clear_input_state(context)
+    from database import update_user, get_user
+    update_user(chat_id, onboard_step=None)
     greeting = random.choice(["What do you need? 🫡", "I'm here. What's up?", "Ready when you are."])
     await query.edit_message_text(greeting, reply_markup=main_menu_kb())
 

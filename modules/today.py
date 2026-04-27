@@ -72,10 +72,10 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if days_until(np) <= 2:
             lines += [f"💰 Payday {friendly_date(np)}", ""]
 
-    # Meds
+    # Meds — only show if there are actually meds configured
     with db() as conn:
         meds = conn.execute("SELECT * FROM medications WHERE chat_id = ?", (chat_id,)).fetchall()
-    if meds:
+    if meds:  # Only show if meds exist
         untaken = [m["name"] for m in meds if not m["taken_today"]]
         lines.append("💊 Meds: All taken ✅" if not untaken else f"💊 Meds: {', '.join(untaken)} not taken yet")
         lines.append("")
