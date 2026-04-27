@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.7.3"
+BOT_VERSION = "2.7.4"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -203,6 +203,20 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle noop buttons (informational headers in grids)
     if data == "noop":
         return
+
+    # Guard: if the user is mid-onboarding, block menu module buttons
+    # that would start a competing flow and cause visual confusion.
+    # Only onboard:*, menu:main, settings:*, and today:* are allowed through.
+    if prefix not in ("onboard", "menu", "settings", "today", "noop", "alter"):
+        from database import get_user as _gu
+        _u = _gu(query.message.chat_id)
+        if _u and _u.get("onboard_step") and _u.get("onboarded") == 0:
+            # User is actively in onboarding — redirect gently
+            await query.edit_message_text(
+                "Finish setting up first — then everything else unlocks. "
+                "Tap Next or Back to continue."
+            )
+            return
 
     routers = {
         "menu":      handle_menu,
