@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from database import db
 from keyboards import meds_list_kb, med_detail_kb, back_to_menu_kb, confirm_delete_kb
+from modules.wellness import log_event
 
 AWAITING_MED_NAME = "med_name"
 AWAITING_MED_DOSAGE = "med_dosage"
@@ -40,7 +41,13 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "taken" or action == "all_taken":
         with db() as conn:
+            med_ids = [m["id"] for m in conn.execute(
+                "SELECT id FROM medications WHERE chat_id = ? AND taken_today = 0",
+                (chat_id,),
+            ).fetchall()]
             conn.execute("UPDATE medications SET taken_today = 1 WHERE chat_id = ?", (chat_id,))
+        for mid in med_ids:
+            log_event(chat_id, "meds", "taken", ref_id=mid)
         msg = "💊 All meds marked as taken. Nice work. 🫡"
         streak_msg = _check_streak_celebration(chat_id)
         if streak_msg:
@@ -57,6 +64,7 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "SELECT COUNT(*) as c FROM medications WHERE chat_id = ? AND taken_today = 0",
                 (chat_id,),
             ).fetchone()
+        log_event(chat_id, "meds", "taken", ref_id=item_id)
         name = med["name"] if med else "Med"
         if remaining and remaining["c"] == 0:
             streak_msg = _check_streak_celebration(chat_id)

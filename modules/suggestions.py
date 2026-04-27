@@ -99,6 +99,8 @@ def get_suggestions(chat_id: int, time_of_day: str = "afternoon") -> list[str]:
     """Returns 3-5 suggestions, mixing context-aware and general pool.
     Always returns something even when no data exists.
     """
+    from modules.wellness import is_recovery_mode, get_insight
+
     d = today()
     specific = []
     general = []
@@ -158,6 +160,26 @@ def get_suggestions(chat_id: int, time_of_day: str = "afternoon") -> list[str]:
     date_cap = _date_cap_nudge(chat_id, d)
     if date_cap:
         specific.append(date_cap)
+
+    # Wellness pattern insight (curious, never shaming — see modules/wellness.py)
+    insight = get_insight(chat_id, d)
+    if insight:
+        specific.append(insight)
+
+    # Recovery mode short-circuits the rest: keep the surface tiny and gentle.
+    # Strip anything pushy from `specific`, then return a small mix.
+    if is_recovery_mode(chat_id):
+        gentle = [
+            s for s in specific
+            if not any(w in s.lower() for w in ("due", "unpaid", "expires", "overdue"))
+        ]
+        soft_general = [
+            "🌱 Recovery mode is on. Tonight: meds, water, one nice thing.",
+            "🌱 You're in recovery mode. The rest can wait.",
+            "💧 Hydrate. Breathe. That's enough for now.",
+        ]
+        out = gentle[:1] + random.sample(soft_general, 1)
+        return out[:2]
 
     # ── Fill remaining slots with general suggestions ────────────────────
     # Always include at least 1 general suggestion for variety

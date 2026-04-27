@@ -13,6 +13,7 @@ from telegram.ext import ContextTypes
 
 from database import db
 from helpers import today, days_until, friendly_date
+from modules.wellness import log_event
 from keyboards import (
     partners_list_kb, partner_detail_kb, back_to_menu_kb,
     relationship_type_kb, interaction_freq_kb,
@@ -206,6 +207,7 @@ async def partners_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "VALUES (?, ?, 'date_night', 'Date Night', ?, 0)",
                 (partner_id, chat_id, date_str),
             )
+        log_event(chat_id, "dates", "logged", ref_id=partner_id)
         name = partner["name"] if partner else "them"
         await query.edit_message_text(
             f"💜 Date with {name} on {date_str} — locked in.\n\nI'll remind you the day before.{recovery_warning}",

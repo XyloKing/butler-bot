@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from database import db
 from helpers import today, now
+from modules.wellness import log_event
 from keyboards import (
     metime_log_activity_kb, metime_log_duration_kb, metime_view_kb,
     back_to_menu_kb,
@@ -65,10 +66,12 @@ async def metime_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             duration = 1.0
 
         with db() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO me_time_logs (chat_id, activity, duration_hr) VALUES (?, ?, ?)",
                 (chat_id, activity, duration),
             )
+            log_id = cursor.lastrowid
+        log_event(chat_id, "me_time", "logged", ref_id=log_id)
 
         label = ACTIVITY_LABELS.get(activity, activity)
         dur_str = f"{int(duration)} hr" if duration >= 1 else "30 min"

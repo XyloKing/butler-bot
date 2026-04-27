@@ -218,6 +218,7 @@ def today_actions_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💡 Suggestions", callback_data="today:suggest"),
         ],
         [InlineKeyboardButton("📊 Quick Analyze", callback_data="today:analyze")],
+        [InlineKeyboardButton("🌱 Recovery Mode", callback_data="today:recovery")],
         back_button_row(),
     ])
 

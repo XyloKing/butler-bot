@@ -145,12 +145,15 @@ def _most_urgent_item(chat_id: int, d: date) -> str | None:
 
 async def daily_reset(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running daily reset")
+    from modules.wellness import log_event
+
+    skip_log: list[tuple[int, int]] = []  # (chat_id, med_id) pairs to log after the txn
     with db() as conn:
         # Before resetting meds, check who completed all meds yesterday and update streaks
         for user in _onboarded_users():
             cid = user["chat_id"]
             meds = conn.execute(
-                "SELECT * FROM medications WHERE chat_id = ?", (cid,)
+                "SELECT id, taken_today FROM medications WHERE chat_id = ?", (cid,)
             ).fetchall()
             if meds and all(m["taken_today"] for m in meds):
                 conn.execute(
@@ -162,6 +165,11 @@ async def daily_reset(context: ContextTypes.DEFAULT_TYPE):
                 conn.execute(
                     "UPDATE users SET med_streak = 0 WHERE chat_id = ?", (cid,),
                 )
+                # Record one skip per untaken med so the wellness engine can
+                # see the gap. Logged after we close the txn to avoid nesting.
+                for m in meds:
+                    if not m["taken_today"]:
+                        skip_log.append((cid, m["id"]))
 
         # Intentional: reset ALL users at midnight. Single-timezone bot; all users share the same midnight.
         conn.execute("UPDATE medications SET taken_today = 0")
@@ -169,6 +177,9 @@ async def daily_reset(context: ContextTypes.DEFAULT_TYPE):
             # Intentional: bill cycle resets globally on the 1st for all users.
             conn.execute("UPDATE bills SET paid_this_cycle = 0")
             logger.info("Monthly bill cycle reset")
+
+    for cid, mid in skip_log:
+        log_event(cid, "meds", "skipped", ref_id=mid)
 
 
 # ── Afternoon digest (2 PM ET) ───────────────────────────

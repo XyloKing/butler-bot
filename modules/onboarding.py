@@ -1218,17 +1218,23 @@ async def handle_onboard_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     onboard_step = user["onboard_step"] if user else None
     awaiting = context.user_data.get("awaiting")
 
-    # DB is always the source of truth. If DB says we're in a text-input step,
-    # use that — regardless of what memory says. This makes the bot fully
-    # restart-safe: no matter when Railway redeploys, the flow continues.
+    # Recovery logic: if DB has an active onboarding step AND memory has no
+    # awaiting set (bot restarted), recover from DB.
+    # CRITICAL: only recover if awaiting is None or already an onboard state.
+    # If awaiting is set to something from another module (e.g. 'cred_name',
+    # 'med_name'), the user is in a menu flow — don't override it.
     if onboard_step and onboard_step in STEP_TO_AWAITING:
         db_awaiting = STEP_TO_AWAITING[onboard_step]
-        if awaiting != db_awaiting:
-            # Memory was wiped by a restart — recover silently
+        if awaiting is None:
+            # Bot restarted, memory wiped — recover
             awaiting = db_awaiting
             context.user_data["awaiting"] = awaiting
+        elif awaiting != db_awaiting:
+            # awaiting is set to something else (menu flow active)
+            # Don't override — let the menu module handle it
+            return False
     elif not awaiting or not str(awaiting).startswith("onboard"):
-        return False  # Not in an onboarding text-input step
+        return False
 
     if not str(awaiting).startswith("onboard"):
         return False

@@ -16,6 +16,7 @@ from helpers import (
     is_payday, next_payday,
 )
 from keyboards import bills_list_kb, bill_detail_kb, back_to_menu_kb
+from modules.wellness import log_event
 
 # Text-input states
 AWAITING_BILL_NAME = "bill_name"
@@ -49,6 +50,7 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.execute("UPDATE bills SET paid_this_cycle = 1 WHERE id = ? AND chat_id = ?",
                          (item_id, chat_id))
             bill = conn.execute("SELECT name FROM bills WHERE id = ?", (item_id,)).fetchone()
+        log_event(chat_id, "bills", "paid", ref_id=item_id)
         name = bill["name"] if bill else "Bill"
         await query.edit_message_text(
             random.choice([

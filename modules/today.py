@@ -47,6 +47,9 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if action == "analyze":
             await _handle_analyze(query, chat_id)
             return
+        if action == "recovery":
+            await _handle_recovery_toggle(query, chat_id)
+            return
 
     user = get_user(chat_id)
 
@@ -328,6 +331,29 @@ async def _handle_suggest(query, chat_id):
         lines = ["💡 No suggestions right now. You're on top of things. 🫡"]
 
     await query.edit_message_text("\n".join(lines), reply_markup=today_actions_kb())
+
+
+async def _handle_recovery_toggle(query, chat_id):
+    """Flip the Minimum-Viable-Day toggle.
+
+    On: tighten the bot — only the bare-bones tonight (meds, water, one nice thing).
+    Off: back to full mode.
+    """
+    from modules.wellness import is_recovery_mode, set_recovery_mode
+    currently_on = is_recovery_mode(chat_id)
+    set_recovery_mode(chat_id, not currently_on)
+    if not currently_on:
+        await query.edit_message_text(
+            "🌱 Recovery mode on.\n\n"
+            "Tonight: meds, water, one nice thing.\n"
+            "Everything else can wait. I've got you.",
+            reply_markup=today_actions_kb(),
+        )
+    else:
+        await query.edit_message_text(
+            "✅ Back to full mode. Welcome back.",
+            reply_markup=today_actions_kb(),
+        )
 
 
 async def _handle_analyze(query, chat_id):
