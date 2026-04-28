@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.8.1"
+BOT_VERSION = "2.8.2"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -711,26 +711,26 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             consumed = await handler(update, context)
         except Exception as e:
-            # Handler crashed mid-flow. Log it but DON'T fall through to menu —
-            # that was the original bug where a crash made the bot show the menu
-            # in place of the expected response (e.g. bill name → main menu).
+            # Handler crashed (usually a Telegram API error mid-reply).
+            # Log it, but DO NOT clear onboard_step — the user should be
+            # able to retype and recover from the same step.
             logger.error(
                 f"Handler {handler.__name__} crashed on text '{update.message.text[:30]}': {e}",
                 exc_info=True
             )
-            # Clear onboard_step so the next text doesn't re-trigger onboarding recovery
-            from database import update_user as _uu
-            _uu(update.effective_chat.id, onboard_step=None)
-            await update.message.reply_text(
-                "Something went sideways. Tap wherever you left off or type /menu."
-            )
+            try:
+                await update.message.reply_text(
+                    "Didn't go through — try typing that again."
+                )
+            except Exception:
+                pass
             return
         if consumed:
             return
 
-    # No module claimed this text — clear any stale onboard_step before showing menu
-    from database import update_user
-    update_user(update.effective_chat.id, onboard_step=None)
+    # No module claimed this text — gentle prompt
+    # NOTE: do NOT clear onboard_step here. If the user is mid-onboarding
+    # and typed something unexpected, they should be able to retry.
     await update.message.reply_text(
         "Not sure what to do with that. Tap a button or type /menu.",
         reply_markup=main_menu_kb(),
