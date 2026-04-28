@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.8.0"
+BOT_VERSION = "2.8.1"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:

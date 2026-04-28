@@ -156,7 +156,8 @@ def test_full_onboarding():
     cb("onboard:add_bills:yes")
     txt("Mortgage")
     txt("$2000")
-    cb("onboard:bill_freq:monthly")  # NEW: frequency step
+    cb("onboard:bill_freq:monthly")       # frequency step
+    cb("onboard:bill_due_day:18")          # due day step (NEW)
     cb("onboard:another_bill:no")
 
     # Car: add oil change with TYPE PICKER (button, not typed text)
@@ -504,6 +505,7 @@ def test_second_bill_add():
     user = get_user(555)
     assert user["onboard_step"] == "bill_freq", f"Expected bill_freq, got {user['onboard_step']}"
     cb("onboard:bill_freq:monthly")  # Pick frequency
+    cb("onboard:bill_due_day:1")
     # After frequency, asks 'Another bill?' and goes back to bill_name
     user = get_user(555)
     assert user["onboard_step"] == "bill_name", f"Expected bill_name, got {user['onboard_step']}"
@@ -513,6 +515,7 @@ def test_second_bill_add():
     txt("Internet")
     txt("$80")
     cb("onboard:bill_freq:monthly")
+    cb("onboard:bill_due_day:15")  # second bill due day
     # Verify both saved
     with db() as conn:
         bills = conn.execute("SELECT name FROM bills WHERE chat_id=555 ORDER BY name").fetchall()

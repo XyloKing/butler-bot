@@ -768,6 +768,21 @@ def onboard_yes_no_kb(callback_prefix: str, back_section: str = None) -> InlineK
     return InlineKeyboardMarkup(rows)
 
 
+def onboard_due_day_kb() -> InlineKeyboardMarkup:
+    """Day of month picker for bill due dates during onboarding."""
+    rows = []
+    row = []
+    for d in range(1, 32):
+        row.append(InlineKeyboardButton(str(d), callback_data=f"onboard:bill_due_day:{d}"))
+        if len(row) == 7:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⏭ Skip", callback_data="onboard:bill_due_day:0")])
+    return InlineKeyboardMarkup(rows)
+
+
 def onboard_car_type_kb() -> InlineKeyboardMarkup:
     """Car item type picker for onboarding."""
     return InlineKeyboardMarkup([

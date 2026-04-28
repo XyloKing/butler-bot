@@ -29,6 +29,7 @@ from keyboards import (
     onboard_progress_text, main_menu_kb, RELATIONSHIP_TYPES,
     date_pick_month_kb, date_pick_day_kb,
     onboard_car_type_kb, onboard_bill_frequency_kb, onboard_payday_kb,
+    onboard_due_day_kb,
 )
 
 logger = logging.getLogger(__name__)
@@ -521,6 +522,31 @@ async def _reshown_step(query, chat_id: int, step: str, context):
             )
 
 
+async def _save_onboard_bill(query, chat_id: int, ob_data: dict):
+    """Save a pending onboarding bill and ask 'another?'."""
+    bill_name = ob_data.pop("pending_bill_name", "Unknown")
+    amount = ob_data.pop("pending_bill_amount", None)
+    freq = ob_data.pop("pending_bill_freq", "monthly")
+    due_day = ob_data.pop("pending_bill_due_day", None) or None
+    if due_day == 0:
+        due_day = None  # 0 = skipped
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO bills (chat_id, name, amount, frequency, due_day) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, bill_name, amount, freq, due_day),
+        )
+    update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_name")
+    freq_labels = {"monthly": "monthly", "biweekly": "every 2 weeks",
+                   "weekly": "weekly", "yearly": "yearly", "once": "one-time"}
+    freq_label = freq_labels.get(freq, freq)
+    amt_str = f" (${amount:,.0f})" if amount is not None else ""
+    day_str = f", due on the {due_day}th" if due_day else ""
+    await query.edit_message_text(
+        f"✅ {bill_name}{amt_str} — {freq_label}{day_str}.\n\nAnother bill?",
+        reply_markup=onboard_yes_no_kb("onboard:another_bill"),
+    )
+
+
 async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
                                    action: str, parts: list, context):
     """All onboard callback logic, wrapped by onboard_callback's try/except."""
@@ -977,26 +1003,32 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
         return
 
     if action == "bill_freq":
-        # onboard:bill_freq:{freq} — called after amount is entered
+        # Save frequency, then ask due day
         freq = parts[2] if len(parts) > 2 else "monthly"
-        freq_labels = {
-            "monthly": "monthly", "biweekly": "every 2 weeks",
-            "weekly": "weekly", "yearly": "yearly", "once": "one-time",
-        }
-        bill_name = ob_data.pop("pending_bill_name", "Unknown")
-        amount = ob_data.pop("pending_bill_amount", None)
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO bills (chat_id, name, amount, frequency) VALUES (?, ?, ?, ?)",
-                (chat_id, bill_name, amount, freq),
+        ob_data["pending_bill_freq"] = freq
+        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_due_day")
+        bill_name = ob_data.get("pending_bill_name", "this bill")
+        # Only ask due day for recurring bills
+        if freq in ("monthly", "biweekly", "weekly"):
+            from keyboards import onboard_due_day_kb
+            await query.edit_message_text(
+                f"What day of the month is {bill_name} usually due?",
+                reply_markup=onboard_due_day_kb(),
             )
-        update_user(chat_id, onboard_data=json.dumps(ob_data), onboard_step="bill_name")
-        freq_label = freq_labels.get(freq, freq)
-        amt_str = f" (${amount:,.0f})" if amount is not None else ""
-        await query.edit_message_text(
-            f"✅ {bill_name}{amt_str} — {freq_label}.\n\nAnother bill?",
-            reply_markup=onboard_yes_no_kb("onboard:another_bill"),
-        )
+        else:
+            # Non-recurring — skip due day, save now
+            await _save_onboard_bill(query, chat_id, ob_data)
+        return
+
+    if action == "bill_due_day":
+        # onboard:bill_due_day:{day} — from due_day_picker_kb
+        # due_day_picker_kb uses bills:setdueday:{d} callbacks — we need onboard version
+        # Actually due_day_picker_kb is for the menu flow. Let’s handle via bills:setdueday
+        # We’ll intercept it here from the bills module callback prefix override
+        day = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        ob_data["pending_bill_due_day"] = day
+        update_user(chat_id, onboard_data=json.dumps(ob_data))
+        await _save_onboard_bill(query, chat_id, ob_data)
         return
 
     if action == "another_bill":
