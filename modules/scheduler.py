@@ -15,7 +15,7 @@ from database import db
 from helpers import (
     now, today, days_until, friendly_date, urgency_emoji, format_money,
     is_payday, next_payday, is_working, get_user_shift, get_shift_info,
-    resolve_date,
+    resolve_date, is_quiet_now,
 )
 from keyboards import main_menu_kb, today_actions_kb, meds_list_kb
 
@@ -43,16 +43,22 @@ async def _for_each_user(
     action,
     job_label: str,
     extra_check=None,
+    respect_quiet: bool = True,
 ):
-    """Run `action(context, chat_id)` for every onboarded user that has `toggle_key` on.
-    `extra_check(chat_id) -> bool` lets callers add a second guard without
-    duplicating the loop (e.g. frequency gate, payday gate).
+    """Run `action(context, chat_id)` for every onboarded user whose toggle is on.
+
+    Gates applied in order:
+      1. toggle_{toggle_key} in settings (default ON)
+      2. extra_check(chat_id) — optional caller-supplied predicate
+      3. respect_quiet — skips users in their quiet hours (default True)
     """
     for user in _onboarded_users():
         chat_id = user["chat_id"]
         if not _toggle_on(chat_id, toggle_key):
             continue
         if extra_check and not extra_check(chat_id):
+            continue
+        if respect_quiet and is_quiet_now(chat_id):
             continue
         try:
             await action(context, chat_id)

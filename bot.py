@@ -8,7 +8,6 @@ Button-first, ADHD-friendly, aggressive reminders.
 """
 import logging
 import os
-import signal
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import time as dt_time
@@ -57,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.9.0"
+BOT_VERSION = "2.9.1"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -493,21 +492,35 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif action == "edit_w1":
+        import json as _json
         from keyboards import onboard_days_kb
+        from database import db as _db
+        with _db() as conn:
+            row = conn.execute(
+                "SELECT week1_days FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1", (chat_id,)
+            ).fetchone()
+        existing = _json.loads(row["week1_days"] or "[]") if row else []
         context.user_data["settings_editing"] = "week1"
-        context.user_data["settings_selected_days"] = []
+        context.user_data["settings_selected_days"] = list(existing)
         await query.edit_message_text(
-            "Tap your Week 1 work days, then hit Done:",
-            reply_markup=onboard_days_kb([]),
+            "Tap to toggle your Week 1 work days, then hit Done:",
+            reply_markup=onboard_days_kb(existing),
         )
 
     elif action == "edit_w2":
+        import json as _json
         from keyboards import onboard_days_kb
+        from database import db as _db
+        with _db() as conn:
+            row = conn.execute(
+                "SELECT week2_days FROM shifts WHERE chat_id = ? ORDER BY id DESC LIMIT 1", (chat_id,)
+            ).fetchone()
+        existing = _json.loads(row["week2_days"] or "[]") if row else []
         context.user_data["settings_editing"] = "week2"
-        context.user_data["settings_selected_days"] = []
+        context.user_data["settings_selected_days"] = list(existing)
         await query.edit_message_text(
-            "Tap your Week 2 work days, then hit Done:",
-            reply_markup=onboard_days_kb([]),
+            "Tap to toggle your Week 2 work days, then hit Done:",
+            reply_markup=onboard_days_kb(existing),
         )
 
     elif action == "override":
@@ -539,12 +552,33 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif action == "notify":
+        from helpers import get_quiet_hours
+        from keyboards import quiet_hours_kb
+        q_start, q_end = get_quiet_hours(chat_id)
+        def _fmt(h): return f"{h % 12 or 12} {'AM' if h < 12 else 'PM'}"
         await query.edit_message_text(
-            "🔔 Notification window: 5 AM – 5 PM ET\n"
-            "Afternoon digest: 2 PM\n"
-            "Evening check-in: 10 PM\n\n"
-            "(Editing notification times coming soon)",
-            reply_markup=settings_kb(),
+            f"🔕 QUIET HOURS\n\n"
+            f"During quiet hours Maurice stays silent — no nags, no check-ins.\n\n"
+            f"Currently quiet: {_fmt(q_start)} → {_fmt(q_end)}\n\n"
+            f"Pick a preset or set custom times:",
+            reply_markup=quiet_hours_kb(q_start, q_end),
+        )
+
+    elif action == "setquiet":
+        # settings:setquiet:{start}:{end}
+        from helpers import set_quiet_hours, get_quiet_hours
+        from keyboards import quiet_hours_kb
+        try:
+            q_start = int(parts[2])
+            q_end   = int(parts[3])
+        except (IndexError, ValueError):
+            q_start, q_end = 2, 14
+        set_quiet_hours(chat_id, q_start, q_end)
+        def _fmt(h): return f"{h % 12 or 12} {'AM' if h < 12 else 'PM'}"
+        await query.edit_message_text(
+            f"✅ Quiet hours set: {_fmt(q_start)} → {_fmt(q_end)}\n\n"
+            f"Maurice will hold all notifications during that window.",
+            reply_markup=quiet_hours_kb(q_start, q_end),
         )
 
     elif action == "payday":
@@ -572,7 +606,15 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "setpayday":
         # settings:setpayday:{val}
         from database import db
+        from keyboards import payday_custom_day_kb
         val = parts[2] if len(parts) > 2 else "weekly_friday"
+        if val == "custom":
+            # Show day-of-month picker before saving
+            await query.edit_message_text(
+                "📅 Pick your payday day of month:",
+                reply_markup=payday_custom_day_kb(),
+            )
+            return
         with db() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'payday_type', ?)",
@@ -582,10 +624,30 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "weekly_friday": "Every Friday",
             "biweekly_friday": "Every Other Friday",
             "first_fifteenth": "1st & 15th of month",
-            "custom": "Custom day of month",
         }
         await query.edit_message_text(
             f"✅ Payday set to: {labels.get(val, val)}",
+            reply_markup=settings_kb(),
+        )
+
+    elif action == "setpayday_dom":
+        # settings:setpayday_dom:{day}  — save custom day-of-month payday
+        from database import db
+        try:
+            dom = int(parts[2])
+        except (IndexError, ValueError):
+            dom = 15
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'payday_type', 'custom')",
+                (chat_id,),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'payday_dom', ?)",
+                (chat_id, str(dom)),
+            )
+        await query.edit_message_text(
+            f"✅ Payday set to the {dom}{'st' if dom==1 else 'nd' if dom==2 else 'rd' if dom==3 else 'th'} of each month.",
             reply_markup=settings_kb(),
         )
 
@@ -757,12 +819,14 @@ def setup_jobs(app):
     # Evening check-in at 10 PM ET
     jq.run_daily(evening_checkin, time=dt_time(EVENING_CHECKIN_HOUR, 0, tzinfo=tz), name="evening_checkin")
 
-    # Med nag every 2 hours during notification window (5 AM - 5 PM ET)
-    for hour in range(5, 17, 2):  # 5, 7, 9, 11, 1, 3
-        jq.run_daily(med_nag, time=dt_time(hour, 30, tzinfo=tz), name=f"med_nag_{hour}")
+    # Med nag: 5 windows spread across 24h so night-shift AND day-shift workers
+    # both get reminders during their active hours. Each fires only if the user's
+    # med toggle is ON and they're NOT in their personal quiet window.
+    for hour in (8, 12, 16, 20, 23):
+        jq.run_daily(med_nag, time=dt_time(hour, 0, tzinfo=tz), name=f"med_nag_{hour}")
 
-    # Bill nag on Fridays (payday) every 3 hours
-    for hour in range(9, 18, 3):  # 9, 12, 3
+    # Bill nag: payday only, twice (morning + afternoon)
+    for hour in (9, 14):
         jq.run_daily(bill_nag, time=dt_time(hour, 0, tzinfo=tz), name=f"bill_nag_{hour}")
 
     # Weekly digest Sunday at noon ET
@@ -778,8 +842,8 @@ def setup_jobs(app):
     jq.run_daily(morning_heartbeat, time=dt_time(15, 0, tzinfo=tz), name="morning_heartbeat")
     jq.run_daily(evening_touch, time=dt_time(22, 0, tzinfo=tz), name="evening_touch")
 
-    # Appointment reminders — hourly during notification window (5 AM - 5 PM ET)
-    for hour in range(5, 17):
+    # Appointment reminders: 5 windows spread across 24h, quiet-hours gated
+    for hour in (8, 12, 16, 20, 23):
         jq.run_daily(
             appointment_reminder_check,
             time=dt_time(hour, 15, tzinfo=tz),
@@ -870,20 +934,13 @@ def main():
     # Scheduled jobs
     setup_jobs(app)
 
-    # Graceful shutdown on SIGTERM (Railway send this before killing the container).
-    # Stopping polling immediately frees the session so the new instance can
-    # acquire it without waiting for the 409 timeout window.
-    def _sigterm(signum, frame):
-        logger.info("SIGTERM received — stopping polling cleanly")
-        app.stop()
-
-    signal.signal(signal.SIGTERM, _sigterm)
-
+    # PTB 21.x handles SIGTERM/SIGINT/SIGABRT natively via stop_signals.
+    # Do NOT install a manual signal handler — it breaks the async shutdown.
     logger.info(f"Butler Bot {BOT_VERSION} starting...")
     app.run_polling(
         drop_pending_updates=True,
         allowed_updates=["message", "callback_query"],
-        close_loop=False,
+        # close_loop=True (default) — PTB owns the event loop lifecycle
     )
 
 

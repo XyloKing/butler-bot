@@ -820,13 +820,13 @@ def onboard_skip_kb() -> InlineKeyboardMarkup:
 
 def settings_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔔 Notification Times", callback_data="settings:notify")],
-        [InlineKeyboardButton("🏥 Work Schedule",      callback_data="settings:schedule")],
+        [InlineKeyboardButton("🔕 Quiet Hours",         callback_data="settings:notify")],
+        [InlineKeyboardButton("🏥 Work Schedule",       callback_data="settings:schedule")],
         [InlineKeyboardButton("📅 Override Shift Day",  callback_data="settings:override")],
-        [InlineKeyboardButton("💰 Payday Settings",    callback_data="settings:payday")],
-        [InlineKeyboardButton("🛠 Feature Toggles",    callback_data="settings:toggles")],
+        [InlineKeyboardButton("💰 Payday Settings",     callback_data="settings:payday")],
+        [InlineKeyboardButton("🛠 Feature Toggles",     callback_data="settings:toggles")],
         [InlineKeyboardButton("💬 Check-in Frequency",  callback_data="settings:touches")],
-        [InlineKeyboardButton("🔄 Re-run Onboarding",  callback_data="onboard:start")],
+        [InlineKeyboardButton("🔄 Re-run Onboarding",   callback_data="onboard:start")],
         back_button_row(),
     ])
 
@@ -1001,3 +1001,45 @@ def settings_shift_type_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("✏️ Custom",            callback_data="settings:set_shift_type:custom")],
         [InlineKeyboardButton("⬅️ Back",              callback_data="settings:schedule")],
     ])
+
+
+# ── QUIET HOURS PICKER ──
+
+def quiet_hours_kb(current_start: int = 2, current_end: int = 14) -> InlineKeyboardMarkup:
+    """Pick a quiet-hours preset. Presets cover night-shift and day-shift workers."""
+    def _fmt(h): return f"{h % 12 or 12}{'am' if h < 12 else 'pm'}"
+
+    # Presets: (label, start_hour, end_hour)
+    presets = [
+        ("🌙 Night shift default (2 AM → 2 PM)",  2,  14),
+        ("☀️ Day shift default (10 PM → 7 AM)",  22,   7),
+        ("😴 Overnight (midnight → 8 AM)",         0,   8),
+        ("🌅 Morning (11 PM → 9 AM)",             23,   9),
+        ("🔕 No quiet hours (always notify)",      0,   0),
+    ]
+    rows = []
+    for label, start, end in presets:
+        active = " ✓" if (start == current_start and end == current_end) else ""
+        rows.append([InlineKeyboardButton(
+            f"{label}{active}",
+            callback_data=f"settings:setquiet:{start}:{end}",
+        )])
+    rows.append([InlineKeyboardButton("⬅️ Settings", callback_data="settings:view")])
+    return InlineKeyboardMarkup(rows)
+
+
+# ── PAYDAY CUSTOM DAY-OF-MONTH PICKER ──
+
+def payday_custom_day_kb() -> InlineKeyboardMarkup:
+    """Grid picker for payday day of month (1-28)."""
+    rows = []
+    row = []
+    for d in range(1, 29):  # 1-28 (safe for all months)
+        row.append(InlineKeyboardButton(str(d), callback_data=f"settings:setpayday_dom:{d}"))
+        if len(row) == 7:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="settings:payday")])
+    return InlineKeyboardMarkup(rows)

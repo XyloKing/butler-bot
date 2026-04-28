@@ -235,3 +235,57 @@ def ascii_week_calendar(
 
     lines.append(footer)
     return "\n".join(lines)
+
+
+# ── Quiet Hours ──
+
+def get_quiet_hours(chat_id: int) -> tuple[int, int]:
+    """Return (quiet_start_hour, quiet_end_hour) in ET for this user.
+    During quiet hours the bot won't send proactive notifications.
+    Default: quiet 2 AM – 2 PM (user is typically sleeping daytime, works nights).
+    """
+    from database import db as _db
+    with _db() as conn:
+        qs = conn.execute(
+            "SELECT value FROM settings WHERE chat_id = ? AND key = 'quiet_start'",
+            (chat_id,),
+        ).fetchone()
+        qe = conn.execute(
+            "SELECT value FROM settings WHERE chat_id = ? AND key = 'quiet_end'",
+            (chat_id,),
+        ).fetchone()
+    try:
+        start = int(qs["value"]) if qs else 2   # 2 AM default
+    except (ValueError, TypeError):
+        start = 2
+    try:
+        end = int(qe["value"]) if qe else 14    # 2 PM default (wake ~2-3pm for 7p shift)
+    except (ValueError, TypeError):
+        end = 14
+    return start, end
+
+
+def is_quiet_now(chat_id: int) -> bool:
+    """True if current ET hour falls inside this user's quiet window."""
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    et_hour = datetime.now(tz=ZoneInfo("America/New_York")).hour
+    q_start, q_end = get_quiet_hours(chat_id)
+    if q_start <= q_end:
+        return q_start <= et_hour < q_end
+    # Wraps midnight: quiet_start > quiet_end (e.g. 22 to 6)
+    return et_hour >= q_start or et_hour < q_end
+
+
+def set_quiet_hours(chat_id: int, start: int, end: int):
+    """Persist quiet hours for a user."""
+    from database import db as _db
+    with _db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'quiet_start', ?)",
+            (chat_id, str(start)),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'quiet_end', ?)",
+            (chat_id, str(end)),
+        )
