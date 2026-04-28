@@ -168,8 +168,8 @@ async def today_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for a in upcoming_appts:
             event_date = date.fromisoformat(a["event_date"])
             delta = days_until(event_date)
-            time_str = f" at {a['event_time']}" if a.get("event_time") else ""
-            cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
+            time_str = f" at {a['event_time']}" if dict(a).get("event_time") else ""
+            cat_emoji = CATEGORY_EMOJI.get(dict(a).get("category") or "other", "📅")
             lines.append(f"  {urgency_emoji(delta)} {cat_emoji} {a['title']}{time_str} — {friendly_date(event_date)}")
         lines.append("")
 
@@ -429,7 +429,7 @@ async def _handle_analyze(query, chat_id):
         lines.append("📅 Upcoming:")
         for a in upcoming[:3]:
             event_date = date.fromisoformat(a["event_date"])
-            cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
+            cat_emoji = CATEGORY_EMOJI.get(dict(a).get("category") or "other", "📅")
             lines.append(f"  {cat_emoji} {a['title']} — {friendly_date(event_date)}")
 
     if len(lines) <= 2:

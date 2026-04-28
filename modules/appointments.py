@@ -362,9 +362,9 @@ async def _show_appt_detail(query, chat_id, appt_id):
     urg = urgency_emoji(delta)
 
     # Get new fields safely
-    cat = appt.get("category") or "other"
+    cat = dict(appt).get("category") or "other"
     try:
-        priority = appt["priority"] if appt["priority"] is not None else 2
+        priority = dict(appt).get("priority") or 2
     except (IndexError, KeyError):
         priority = 2
 
@@ -405,9 +405,9 @@ async def _show_appt_detail_new(query, chat_id, appt_id):
     delta = days_until(event_date)
     urg = urgency_emoji(delta)
 
-    cat = appt.get("category") or "other"
+    cat = dict(appt).get("category") or "other"
     try:
-        priority = appt["priority"] if appt["priority"] is not None else 2
+        priority = dict(appt).get("priority") or 2
     except (IndexError, KeyError):
         priority = 2
 

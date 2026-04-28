@@ -480,14 +480,16 @@ def cred_ceu_kb(cred_id: int) -> InlineKeyboardMarkup:
 
 def touch_frequency_kb(current: int = 2) -> InlineKeyboardMarkup:
     """How often should Maurice check in per day?"""
+    # 99 = unlimited (every scheduled window fires, no gate)
     options = [
-        (1, "Once a day"),
-        (2, "Twice a day"),
-        (3, "3x a day"),
-        (4, "4x a day"),
-        (6, "6x a day"),
-        (8, "8x a day"),
-        (0, "Never (I'll open it myself)"),
+        (1,  "Once a day"),
+        (2,  "Twice a day"),
+        (3,  "3x a day"),
+        (4,  "4x a day"),
+        (6,  "6x a day"),
+        (8,  "8x a day"),
+        (99, "All of them (unlimited)"),
+        (0,  "Never — I'll open it myself"),
     ]
     rows = []
     for val, label in options:

@@ -162,7 +162,7 @@ async def test_onboarding():
 
     # "Let's Set Up" button
     update, ctx = await run_callback("onboard:start", ctx)
-    check("onboard:start sets awaiting name", ctx.user_data.get("awaiting") == "onboard_name")
+    _u = get_user(CHAT_ID); check("onboard:start sets step=name", _u and _u["onboard_step"] == "name")
 
     # Type name
     update, ctx = await run_text("Testie McTestFace", ctx)
@@ -179,20 +179,22 @@ async def test_onboarding():
     await run_callback("onboard:day:0", ctx)  # Mon
     await run_callback("onboard:day:1", ctx)  # Tue
     await run_callback("onboard:day:5", ctx)  # Sat
-    await run_callback("onboard:days_done", ctx)
+    await run_callback("onboard:days_done", ctx)  # stores weeks[0], asks "add week 2?"
 
     user = get_user(CHAT_ID)
     ob_data = json.loads(user["onboard_data"] or "{}")
-    check("week1 days saved", ob_data.get("week1_days") == [0, 1, 5])
+    # New state machine: week 1 is in ob_data["weeks"][0], not ob_data["week1_days"]
+    check("week1 days saved", ob_data.get("weeks", [[]])[0] == [0, 1, 5])
 
-    # Say yes to week 2
-    await run_callback("onboard:has_week2:yes", ctx)
+    # Say yes to week 2 (new callback name: add_week)
+    await run_callback("onboard:add_week:yes", ctx)
 
     # Pick week 2: Sun, Wed, Thu
     await run_callback("onboard:day:6", ctx)  # Sun
     await run_callback("onboard:day:2", ctx)  # Wed
     await run_callback("onboard:day:3", ctx)  # Thu
-    await run_callback("onboard:days_done", ctx)
+    await run_callback("onboard:days_done", ctx)  # stores weeks[1], asks "add week 3?"
+    await run_callback("onboard:add_week:no", ctx)  # done — saves shift to DB
 
     # Check shift saved to DB
     with db() as conn:
@@ -205,7 +207,7 @@ async def test_onboarding():
     # Partners: Yes, add "Alex"
     await run_callback("onboard:partners_intro", ctx)
     await run_callback("onboard:add_partners:yes", ctx)
-    check("awaiting partner name", ctx.user_data.get("awaiting") == "onboard_partner_name")
+    _u2 = get_user(CHAT_ID); check("awaiting partner name (DB step)", _u2 and _u2["onboard_step"] == "partner_name")
     await run_text("Alex", ctx)
     with db() as conn:
         partners = conn.execute("SELECT * FROM partners WHERE chat_id = ?", (CHAT_ID,)).fetchall()
@@ -226,41 +228,49 @@ async def test_onboarding():
     await run_callback("onboard:add_bills:yes", ctx)
     await run_text("Rent", ctx)
     await run_text("1200", ctx)
+    await run_callback("onboard:bill_freq:monthly", ctx)  # frequency picker (new step)
+    await run_callback("onboard:bill_due_day:1", ctx)     # due day picker (new step)
     with db() as conn:
         bills = conn.execute("SELECT * FROM bills WHERE chat_id = ?", (CHAT_ID,)).fetchall()
     check("bill Rent saved", len(bills) >= 1 and any(b["name"] == "Rent" for b in bills))
 
     # Add another bill
-    await run_callback("onboard:another_bill:yes", ctx)
+    await run_callback("onboard:add_bills:yes", ctx)  # still in bill_name step
     await run_text("Electric", ctx)
     await run_text("150", ctx)
+    await run_callback("onboard:bill_freq:monthly", ctx)
+    await run_callback("onboard:bill_due_day:15", ctx)
 
-    # Done with bills
-    await run_callback("onboard:another_bill:no", ctx)
+    # Done with bills — go to car section
+    await run_callback("onboard:add_bills:no", ctx)
 
-    # Car: Yes, add oil change
+    # Car: Yes, add inspection (uses button type + button date picker)
     await run_callback("onboard:car_intro", ctx)
     await run_callback("onboard:add_car:yes", ctx)
-    await run_text("Oil Change", ctx)
-    await run_text("2026-06-15", ctx)
+    await run_callback("onboard:car_type:inspection", ctx)  # pick type via button
+    # Date picker: month then day
+    await run_callback("onboard:ob_date:car:month:6:2026", ctx)
+    await run_callback("onboard:ob_date:car:day:2026-06-15", ctx)
     with db() as conn:
         cars = conn.execute("SELECT * FROM car_events WHERE chat_id = ?", (CHAT_ID,)).fetchall()
     check("car event saved", len(cars) >= 1)
 
     # Done with car
-    await run_callback("onboard:another_car:no", ctx)
+    await run_callback("onboard:add_car:no", ctx)
 
-    # Credentials: Yes
+    # Credentials: Yes (also uses button date picker)
     await run_callback("onboard:creds_intro", ctx)
     await run_callback("onboard:add_creds:yes", ctx)
     await run_text("RRT License", ctx)
-    await run_text("2027-06-01", ctx)
+    # Date picker for expiry
+    await run_callback("onboard:ob_date:cred:month:6:2027", ctx)
+    await run_callback("onboard:ob_date:cred:day:2027-06-01", ctx)
     with db() as conn:
         creds = conn.execute("SELECT * FROM credentials WHERE chat_id = ?", (CHAT_ID,)).fetchall()
     check("credential saved", len(creds) >= 1)
 
     # Done with creds
-    await run_callback("onboard:another_cred:no", ctx)
+    await run_callback("onboard:add_creds:no", ctx)
 
     # Meds: Yes
     await run_callback("onboard:meds_intro", ctx)

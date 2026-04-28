@@ -8,6 +8,7 @@ Button-first, ADHD-friendly, aggressive reminders.
 """
 import logging
 import os
+import signal
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import time as dt_time
@@ -210,7 +211,7 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if prefix not in ("onboard", "menu", "settings", "today", "noop", "alter"):
         from database import get_user as _gu
         _u = _gu(query.message.chat_id)
-        if _u and _u.get("onboard_step") and _u.get("onboarded") == 0:
+        if _u and _u["onboard_step"] and _u["onboarded"] == 0:
             # User is actively in onboarding — redirect gently
             await query.edit_message_text(
                 "Finish setting up first — then everything else unlocks. "
@@ -597,7 +598,7 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (chat_id,)
             ).fetchone()
         current = int(row["value"]) if row else 2
-        label = {0: "Never", 1: "Once", 2: "Twice", 3: "3x", 4: "4x", 6: "6x", 8: "8x"}.get(current, f"{current}x")
+        label = {0: "Never", 1: "Once", 2: "Twice", 3: "3x", 4: "4x", 6: "6x", 8: "8x", 99: "Unlimited"}.get(current, f"{current}x")
         await query.edit_message_text(
             f"💬 CHECK-IN FREQUENCY\n\nCurrently: {label} a day\n\n"
             "How often do you want Maurice to reach out?",
@@ -617,7 +618,7 @@ async def handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (chat_id, str(freq_int)),
             )
         from keyboards import touch_frequency_kb
-        label = {0: "Never", 1: "Once", 2: "Twice", 3: "3x", 4: "4x", 6: "6x", 8: "8x"}.get(freq_int, f"{freq_int}x")
+        label = {0: "Never", 1: "Once", 2: "Twice", 3: "3x", 4: "4x", 6: "6x", 8: "8x", 99: "Unlimited"}.get(freq_int, f"{freq_int}x")
         await query.edit_message_text(
             f"✅ Set to {label} a day.",
             reply_markup=touch_frequency_kb(freq_int),
@@ -820,15 +821,17 @@ def main():
     import httpx
     import time
 
-    logger.info("Waiting for old instance to release polling...")
-    for attempt in range(12):  # Try for up to 60 seconds
+    # Wait for the old instance to stop polling before we start.
+    # Railway keeps the old container alive during deploys, so we
+    # poll-check until the 409 Conflict stops, then take over.
+    logger.info("Waiting for old instance to release polling (up to 90s)...")
+    for attempt in range(18):  # 18 * 5s = 90 seconds max
         try:
             httpx.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
                 params={"drop_pending_updates": True},
                 timeout=10,
             )
-            # Try a getUpdates — if it succeeds without 409, we own the session
             resp = httpx.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
                 params={"offset": -1, "limit": 1, "timeout": 1},
@@ -838,16 +841,16 @@ def main():
                 logger.info(f"Polling session acquired on attempt {attempt + 1}.")
                 break
             elif resp.status_code == 409:
-                logger.info(f"Attempt {attempt + 1}: old instance still polling, waiting 5s...")
+                logger.info(f"Attempt {attempt + 1}: 409 Conflict — old instance still alive. Waiting 5s...")
                 time.sleep(5)
             else:
-                logger.warning(f"Unexpected response: {resp.status_code}")
+                logger.warning(f"Unexpected status {resp.status_code}, retrying...")
                 time.sleep(5)
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} error: {e}")
             time.sleep(5)
     else:
-        logger.warning("Could not acquire polling after 60s — starting anyway.")
+        logger.warning("Could not acquire polling cleanly after 90s — starting anyway.")
 
     init_db()
 
@@ -867,10 +870,20 @@ def main():
     # Scheduled jobs
     setup_jobs(app)
 
+    # Graceful shutdown on SIGTERM (Railway send this before killing the container).
+    # Stopping polling immediately frees the session so the new instance can
+    # acquire it without waiting for the 409 timeout window.
+    def _sigterm(signum, frame):
+        logger.info("SIGTERM received — stopping polling cleanly")
+        app.stop()
+
+    signal.signal(signal.SIGTERM, _sigterm)
+
     logger.info(f"Butler Bot {BOT_VERSION} starting...")
     app.run_polling(
         drop_pending_updates=True,
         allowed_updates=["message", "callback_query"],
+        close_loop=False,
     )
 
 

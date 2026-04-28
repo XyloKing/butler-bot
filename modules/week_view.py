@@ -80,8 +80,8 @@ async def _show_week(query, chat_id, offset=0):
             target = resolve_date(pd_row["date_value"], start)
             if target and start <= target < end:
                 from keyboards import RELATIONSHIP_TYPES
-                rel = pd_row.get("relationship_type")
-                emoji = RELATIONSHIP_TYPES[rel][0] if rel and rel in RELATIONSHIP_TYPES else (pd_row.get("emoji") or "💜")
+                rel = dict(pd_row).get("relationship_type")
+                emoji = RELATIONSHIP_TYPES[rel][0] if rel and rel in RELATIONSHIP_TYPES else (dict(pd_row).get("emoji") or "💜")
                 label = pd_row.get("label") or pd_row["date_type"]
                 events.setdefault(target, []).append(f"{emoji} {pd_row['partner_name']} — {label}")
 
@@ -106,7 +106,7 @@ async def _show_week(query, chat_id, offset=0):
             except (ValueError, TypeError):
                 continue
             time_str = f" {a['event_time']}" if a["event_time"] else ""
-            cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
+            cat_emoji = CATEGORY_EMOJI.get(dict(a).get("category") or "other", "📅")
             events.setdefault(adate, []).append(f"{cat_emoji} {a['title']}{time_str}")
 
     cal = ascii_week_calendar(start, work_days, events)

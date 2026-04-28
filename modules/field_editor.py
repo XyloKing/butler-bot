@@ -278,7 +278,7 @@ async def _send_detail_view(update, context, module, item_id, chat_id):
             delta = _du(event_d)
             urg = _ue(delta)
             time_str = f"\nTime: {appt['event_time']}" if appt["event_time"] else ""
-            cat = appt.get("category") or "other"
+            cat = dict(appt).get("category") or "other"
             try:
                 priority = appt["priority"] if appt["priority"] is not None else 2
             except (IndexError, KeyError):

@@ -37,6 +37,29 @@ def _onboarded_users():
         return conn.execute("SELECT * FROM users WHERE onboarded = 1").fetchall()
 
 
+async def _for_each_user(
+    context,
+    toggle_key: str,
+    action,
+    job_label: str,
+    extra_check=None,
+):
+    """Run `action(context, chat_id)` for every onboarded user that has `toggle_key` on.
+    `extra_check(chat_id) -> bool` lets callers add a second guard without
+    duplicating the loop (e.g. frequency gate, payday gate).
+    """
+    for user in _onboarded_users():
+        chat_id = user["chat_id"]
+        if not _toggle_on(chat_id, toggle_key):
+            continue
+        if extra_check and not extra_check(chat_id):
+            continue
+        try:
+            await action(context, chat_id)
+        except Exception as exc:
+            logger.error(f"{job_label} failed for {chat_id}: {exc}")
+
+
 # ── Morning heartbeat (3 PM ET = wake time for 7p-7a) ───
 
 def _touch_frequency(chat_id: int) -> int:
@@ -53,31 +76,24 @@ def _touch_frequency(chat_id: int) -> int:
 
 
 async def morning_heartbeat(context: ContextTypes.DEFAULT_TYPE):
-    """First daily touch at 3 PM ET (wake time for night shift workers)."""
+    """First daily touch at 3 PM ET (wake time for 7p-7a shift workers)."""
     logger.info("Sending morning heartbeat")
-    for user in _onboarded_users():
-        chat_id = user["chat_id"]
-        if not _toggle_on(chat_id, "morning_heartbeat"):
-            continue
-        try:
-            await _send_touch(context, chat_id)
-        except Exception as e:
-            logger.error(f"Heartbeat failed for {chat_id}: {e}")
+    await _for_each_user(
+        context, "morning_heartbeat",
+        lambda ctx, cid: _send_touch(ctx, cid),
+        "morning_heartbeat",
+    )
 
 
 async def evening_touch(context: ContextTypes.DEFAULT_TYPE):
     """Second daily touch at 10 PM ET (start of work window)."""
     logger.info("Sending evening touch")
-    for user in _onboarded_users():
-        chat_id = user["chat_id"]
-        if not _toggle_on(chat_id, "evening_checkin"):
-            continue
-        if _touch_frequency(chat_id) < 2:
-            continue
-        try:
-            await _send_touch(context, chat_id)
-        except Exception as e:
-            logger.error(f"Evening touch failed for {chat_id}: {e}")
+    await _for_each_user(
+        context, "evening_checkin",
+        lambda ctx, cid: _send_touch(ctx, cid),
+        "evening_touch",
+        extra_check=lambda cid: _touch_frequency(cid) >= 2,  # 0 = never, 1 = once (morning only), 2+ = both
+    )
 
 
 async def _send_touch(context, chat_id):
@@ -186,24 +202,22 @@ async def daily_reset(context: ContextTypes.DEFAULT_TYPE):
 
 async def afternoon_digest(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Sending afternoon digest")
-    for user in _onboarded_users():
-        try:
-            if _toggle_on(user["chat_id"], "afternoon_digest"):
-                await _send_digest(context, user["chat_id"], "afternoon")
-        except Exception as e:
-            logger.error(f"Digest failed for {user['chat_id']}: {e}")
+    await _for_each_user(
+        context, "afternoon_digest",
+        lambda ctx, cid: _send_digest(ctx, cid, "afternoon"),
+        "afternoon_digest",
+    )
 
 
 # ── Evening check-in (10 PM ET) ──────────────────────────
 
 async def evening_checkin(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Sending evening check-in")
-    for user in _onboarded_users():
-        try:
-            if _toggle_on(user["chat_id"], "evening_checkin"):
-                await _send_digest(context, user["chat_id"], "evening")
-        except Exception as e:
-            logger.error(f"Evening check-in failed for {user['chat_id']}: {e}")
+    await _for_each_user(
+        context, "evening_checkin",
+        lambda ctx, cid: _send_digest(ctx, cid, "evening"),
+        "evening_checkin",
+    )
 
 
 # ── Digest builder ────────────────────────────────────────
@@ -299,8 +313,8 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
         lines += ["", "📅 UPCOMING APPOINTMENTS:"]
         for a in upcoming_appts:
             event_date = date.fromisoformat(a["event_date"])
-            time_str = f" at {a['event_time']}" if a.get("event_time") else ""
-            cat_emoji = CATEGORY_EMOJI.get(a.get("category") or "other", "📅")
+            time_str = f" at {a['event_time']}" if dict(a).get("event_time") else ""
+            cat_emoji = CATEGORY_EMOJI.get(dict(a).get("category") or "other", "📅")
             lines.append(f"  {urgency_emoji(days_until(event_date))} {cat_emoji} {a['title']}{time_str} — {friendly_date(event_date)}")
 
     # Partner dates (7 days)
@@ -314,7 +328,7 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
         target = resolve_date(pd_row["date_value"], d)
         if target and 0 <= days_until(target) <= 7:
             emoji = pd_row.get("emoji") or "💜"
-            label = pd_row.get("label") or pd_row["date_type"]
+            label = dict(pd_row).get("label") or pd_row["date_type"]
             lines.append(f"{emoji} {pd_row['partner_name']} — {label} {friendly_date(target)}")
 
     # Quality-of-life suggestions
@@ -336,65 +350,61 @@ async def _send_digest(context: ContextTypes.DEFAULT_TYPE, chat_id: int, time_of
 
 # ── Med nag (every 2 hrs during notification window) ─────
 
+async def _med_nag_one(context, chat_id):
+    with db() as conn:
+        untaken = conn.execute(
+            "SELECT * FROM medications WHERE chat_id = ? AND taken_today = 0", (chat_id,)
+        ).fetchall()
+    if untaken:
+        names = ", ".join(m["name"] for m in untaken)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=random.choice([
+                f"💊 Still there when you're ready: {names}",
+                f"💊 No rush — just a heads up: {names}",
+                f"💊 Whenever you get a chance: {names}",
+            ]),
+            reply_markup=meds_list_kb([dict(m) for m in untaken]),
+        )
+
+
 async def med_nag(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running med nag check")
-    for user in _onboarded_users():
-        chat_id = user["chat_id"]
-        if not _toggle_on(chat_id, "med_reminders"):
-            continue
-        with db() as conn:
-            untaken = conn.execute(
-                "SELECT * FROM medications WHERE chat_id = ? AND taken_today = 0", (chat_id,)
-            ).fetchall()
-        if untaken:
-            names = ", ".join(m["name"] for m in untaken)
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=random.choice([
-                    f"💊 Still there when you're ready: {names}",
-                    f"💊 No rush — just a heads up: {names}",
-                    f"💊 Whenever you get a chance: {names}",
-                ]),
-                reply_markup=meds_list_kb([dict(m) for m in untaken]),
-            )
+    await _for_each_user(context, "med_reminders", _med_nag_one, "med_nag")
 
 
 # ── Bill nag (payday, every 3 hrs) ───────────────────────
+
+async def _bill_nag_one(context, chat_id):
+    with db() as conn:
+        unpaid = conn.execute(
+            "SELECT * FROM bills WHERE chat_id = ? AND paid_this_cycle = 0", (chat_id,)
+        ).fetchall()
+    if unpaid:
+        total = sum((b["amount"] or 0) for b in unpaid)
+        from keyboards import bills_list_kb
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"💰 It's payday and you have {len(unpaid)} unpaid bills "
+                f"({format_money(total)}).\n\nHere's what's outstanding whenever you're ready."
+            ),
+            reply_markup=bills_list_kb([dict(b) for b in unpaid]),
+        )
+
 
 async def bill_nag(context: ContextTypes.DEFAULT_TYPE):
     if not is_payday(today()):
         return
     logger.info("Running payday bill nag")
-    for user in _onboarded_users():
-        chat_id = user["chat_id"]
-        if not _toggle_on(chat_id, "bill_reminders"):
-            continue
-        with db() as conn:
-            unpaid = conn.execute(
-                "SELECT * FROM bills WHERE chat_id = ? AND paid_this_cycle = 0", (chat_id,)
-            ).fetchall()
-        if unpaid:
-            total = sum((b["amount"] or 0) for b in unpaid)
-            from keyboards import bills_list_kb
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"💰 It's payday and you have {len(unpaid)} unpaid bills ({format_money(total)}).\n\nHere's what's outstanding whenever you're ready.",
-                reply_markup=bills_list_kb([dict(b) for b in unpaid]),
-            )
+    await _for_each_user(context, "bill_reminders", _bill_nag_one, "bill_nag")
 
 
 # ── Weekly digest (Sunday noon) ───────────────────────────
 
 async def weekly_digest(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Sending weekly digest")
-    for user in _onboarded_users():
-        chat_id = user["chat_id"]
-        if not _toggle_on(chat_id, "weekly_digest"):
-            continue
-        try:
-            await _send_weekly(context, chat_id)
-        except Exception as e:
-            logger.error(f"Weekly digest failed for {chat_id}: {e}")
+    await _for_each_user(context, "weekly_digest", _send_weekly, "weekly_digest")
 
 
 async def _send_weekly(context, chat_id):
@@ -447,7 +457,7 @@ async def _send_weekly(context, chat_id):
     if week_appts:
         lines.append("\n📅 Appointments this week:")
         for a in week_appts:
-            time_str = f" at {a['event_time']}" if a.get("event_time") else ""
+            time_str = f" at {a['event_time']}" if dict(a).get("event_time") else ""
             try:
                 lines.append(f"  • {a['title']}{time_str} — {friendly_date(date.fromisoformat(a['event_date']))}")
             except (ValueError, TypeError):
@@ -463,17 +473,13 @@ async def _send_weekly(context, chat_id):
 # ── Appointment reminders (hourly) ────────────────────────
 
 async def appointment_reminder_check(context: ContextTypes.DEFAULT_TYPE):
-    from modules.appointments import CATEGORY_EMOJI, PRIORITY_REMINDERS, CATEGORIES
     logger.info("Running appointment reminder check")
     d = today()
-    for user in _onboarded_users():
-        chat_id = user["chat_id"]
-        if not _toggle_on(chat_id, "appt_reminders"):
-            continue
-        try:
-            await _check_user_appointments(context, chat_id, d)
-        except Exception as e:
-            logger.error(f"Appointment reminder failed for {chat_id}: {e}")
+    await _for_each_user(
+        context, "appt_reminders",
+        lambda ctx, cid: _check_user_appointments(ctx, cid, d),
+        "appt_reminder",
+    )
 
 
 async def _check_user_appointments(context, chat_id, d):
@@ -487,10 +493,10 @@ async def _check_user_appointments(context, chat_id, d):
         ).fetchall()
 
     for appt in appts:
-        priority = appt.get("priority") or 2
+        priority = dict(appt).get("priority") or 2
         if priority == 0:
             continue
-        reminder_level = appt.get("reminder_level") or "smart"
+        reminder_level = dict(appt).get("reminder_level") or "smart"
         if reminder_level == "none":
             continue
 
@@ -558,7 +564,7 @@ def _log_reminder(chat_id, appt_id, key):
 
 async def _send_appointment_reminder(context, chat_id, appt, days_away, working_tonight):
     from modules.appointments import CATEGORY_EMOJI, CATEGORIES
-    cat = appt.get("category") or "other"
+    cat = dict(appt).get("category") or "other"
     cat_emoji = CATEGORY_EMOJI.get(cat, "📋")
     cat_label = CATEGORIES.get(cat, cat)
     event_date = date.fromisoformat(appt["event_date"])
