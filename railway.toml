@@ -5,7 +5,7 @@ builder = "NIXPACKS"
 startCommand = "python3 bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
-healthcheckPath = "/"
-healthcheckTimeout = 30
-stopGracePeriod = 10
+# No healthcheckPath — PTB webhook server only listens on /webhook/{token}
+# Railway will keep the process alive as long as it doesn't exit
+stopGracePeriod = 15
 numReplicas = 1

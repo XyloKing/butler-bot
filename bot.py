@@ -8,8 +8,6 @@ Button-first, ADHD-friendly, aggressive reminders.
 """
 import logging
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import time as dt_time
 
 from telegram import Update
@@ -56,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.9.1"
+BOT_VERSION = "2.9.2"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -853,95 +851,60 @@ def setup_jobs(app):
     logger.info("Scheduled jobs registered")
 
 
-# ── HEALTH CHECK (keeps Railway from killing the process) ──
-
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def log_message(self, *args):
-        pass  # silence health check logs
-
-def _start_health_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
-    logger.info(f"Health check listening on port {port}")
-    server.serve_forever()
-
-
 # ── MAIN ──
 
 def main():
-    # Start health check FIRST so Railway sees us as healthy immediately
-    health_thread = threading.Thread(target=_start_health_server, daemon=True)
-    health_thread.start()
-    logger.info("Health server started, initializing bot...")
+    """Start the bot.
 
-    # Force-kill any other polling session before we start.
-    # Railway briefly runs old + new instances during deploys.
-    # We must wait for the old one to fully die before polling.
-    import httpx
-    import time
+    WEBHOOK MODE (production on Railway):
+      Set WEBHOOK_URL env var to the public Railway domain (no trailing slash).
+      PTB registers the webhook with Telegram and serves updates via aiohttp.
+      Only ONE endpoint can be registered — no 409 Conflicts, ever.
 
-    # Wait for the old instance to stop polling before we start.
-    # Railway keeps the old container alive during deploys, so we
-    # poll-check until the 409 Conflict stops, then take over.
-    logger.info("Waiting for old instance to release polling (up to 90s)...")
-    for attempt in range(18):  # 18 * 5s = 90 seconds max
-        try:
-            httpx.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
-                params={"drop_pending_updates": True},
-                timeout=10,
-            )
-            resp = httpx.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
-                params={"offset": -1, "limit": 1, "timeout": 1},
-                timeout=15,
-            )
-            if resp.status_code == 200 and resp.json().get("ok"):
-                logger.info(f"Polling session acquired on attempt {attempt + 1}.")
-                break
-            elif resp.status_code == 409:
-                logger.info(f"Attempt {attempt + 1}: 409 Conflict — old instance still alive. Waiting 5s...")
-                time.sleep(5)
-            else:
-                logger.warning(f"Unexpected status {resp.status_code}, retrying...")
-                time.sleep(5)
-        except Exception as e:
-            logger.warning(f"Attempt {attempt + 1} error: {e}")
-            time.sleep(5)
-    else:
-        logger.warning("Could not acquire polling cleanly after 90s — starting anyway.")
-
+    POLLING MODE (local dev / fallback):
+      Leave WEBHOOK_URL unset.
+    """
     init_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Commands
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("version", _version_command))
-
-    # Button presses — single router handles everything
     app.add_handler(CallbackQueryHandler(button_router))
-
-    # Text messages — routed to active module
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
 
-    # Scheduled jobs
     setup_jobs(app)
 
-    # PTB 21.x handles SIGTERM/SIGINT/SIGABRT natively via stop_signals.
-    # Do NOT install a manual signal handler — it breaks the async shutdown.
-    logger.info(f"Butler Bot {BOT_VERSION} starting...")
-    app.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=["message", "callback_query"],
-        # close_loop=True (default) — PTB owns the event loop lifecycle
-    )
+    webhook_url = os.environ.get("WEBHOOK_URL", "").strip().rstrip("/")
+
+    if webhook_url:
+        # ── WEBHOOK MODE ──
+        # Telegram POSTs updates to our URL. Only one URL registered at a time,
+        # so Railway deploy overlaps can never cause concurrent polling races.
+        # The moment we call run_webhook, Telegram switches to the new instance.
+        port = int(os.environ.get("PORT", 8080))
+        webhook_path = f"/webhook/{BOT_TOKEN}"
+        full_url = f"{webhook_url}{webhook_path}"
+
+        logger.info(f"Butler Bot {BOT_VERSION} — WEBHOOK mode on :{port}")
+        logger.info(f"Registered at: {full_url}")
+
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=webhook_path,
+            webhook_url=full_url,
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query"],
+        )
+    else:
+        # ── POLLING MODE (local / CI) ──
+        logger.info(f"Butler Bot {BOT_VERSION} — POLLING mode")
+        app.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query"],
+        )
 
 
 if __name__ == "__main__":
