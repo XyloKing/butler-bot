@@ -56,7 +56,12 @@ async def handle_settings_day_select(update: Update, context: ContextTypes.DEFAU
         else:
             selected.append(day_num)
         context.user_data["settings_selected_days"] = selected
-        await query.edit_message_reply_markup(reply_markup=onboard_days_kb(selected))
+        week_field = context.user_data.get("settings_editing", "week1")
+        label = "Week 1" if week_field == "week1" else "Week 2"
+        await query.edit_message_text(
+            f"🏥 {label} days — tap to toggle, then Done:",
+            reply_markup=onboard_days_kb(selected),
+        )
 
     elif action == "days_done":
         selected = sorted(context.user_data.get("settings_selected_days", []))

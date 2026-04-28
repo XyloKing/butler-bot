@@ -764,7 +764,14 @@ async def _dispatch_onboard_action(query: CallbackQuery, chat_id: int,
             selected.append(day_num)
         ob_data["selected_days"] = selected
         update_user(chat_id, onboard_data=json.dumps(ob_data))
-        await query.edit_message_reply_markup(reply_markup=onboard_days_kb(selected))
+        weeks = ob_data.get("weeks", [])
+        week_num = len(weeks) + 1
+        week_label = f"Week {week_num}" if week_num > 1 else ""
+        label_str = f"{week_label} days:" if week_label else "Which days do you work?"
+        await query.edit_message_text(
+            f"{onboard_progress_text('shift_days')}\n\n{label_str}\nTap to select, then hit Done:",
+            reply_markup=onboard_days_kb(selected),
+        )
         return
 
     if action == "days_done":
