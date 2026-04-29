@@ -15,7 +15,7 @@ from telegram.ext import ContextTypes
 
 from database import db
 from helpers import today, days_until, friendly_date, urgency_emoji
-from keyboards import back_to_menu_kb, date_pick_month_kb, date_pick_day_kb
+from keyboards import back_to_menu_kb, date_pick_month_kb, date_pick_day_kb, appt_time_kb
 
 AWAITING_APPT_TITLE = "appt_title"
 AWAITING_APPT_DATE = "appt_date"
@@ -494,10 +494,9 @@ async def _handle_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
     context.user_data["appt_date"] = parsed
     context.user_data["awaiting"] = AWAITING_APPT_TIME
 
-    from keyboards import time_picker_kb
     await update.message.reply_text(
-        f"📅 Date: {parsed}\n\nWhat time?",
-        reply_markup=time_picker_kb(),
+        f"📅 Date: {parsed}\n\nWhat time? Tap a preset or type it:",
+        reply_markup=appt_time_kb(),
     )
     return True
 
@@ -517,6 +516,7 @@ async def _save_appointment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("⏭ Skip Notes", callback_data="appts:skip_notes")],
+        [InlineKeyboardButton("✕ Cancel", callback_data="menu:main")],
     ])
 
     title = context.user_data.get("appt_title", "")
@@ -867,8 +867,7 @@ async def appt_datepick_callback(update: Update, context: ContextTypes.DEFAULT_T
                 context.user_data["appt_category"] = c["value"]
         context.user_data["appt_date"] = date_str
         context.user_data["awaiting"] = AWAITING_APPT_TIME
-        from keyboards import time_picker_kb
         await query.edit_message_text(
-            f"📅 Date: {date_str}\n\nWhat time?",
-            reply_markup=time_picker_kb(),
+            f"📅 Date: {date_str}\n\nWhat time? Tap a preset or type it:",
+            reply_markup=appt_time_kb(),
         )

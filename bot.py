@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 # ── COMMAND HANDLERS (minimal — just /start and /menu) ──
 
-BOT_VERSION = "2.9.2"
+BOT_VERSION = "2.9.3"
 BUILD_DATE = "2026-04-08-v2"
 
 def _week_emoji_row(days: list[int]) -> str:
@@ -137,6 +137,22 @@ def _clear_input_state(context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop(k, None)
 
     # ── Med temp keys ────────────────────────────────
+    # If user typed a med name but then cancelled before picking dosage,
+    # the record was already inserted to get med_id for dosage buttons. Clean it up.
+    pending_med_id = context.user_data.pop("pending_med_id", None)
+    if pending_med_id is not None:
+        try:
+            from database import db as _db
+            with _db() as conn:
+                med = conn.execute(
+                    "SELECT dosage, schedule FROM medications WHERE id = ?",
+                    (pending_med_id,)
+                ).fetchone()
+                # Only delete if it's still a stub (no dosage, default schedule)
+                if med and not med["dosage"] and (not med["schedule"] or med["schedule"] == "daily"):
+                    conn.execute("DELETE FROM medications WHERE id = ?", (pending_med_id,))
+        except Exception:
+            pass  # best-effort, don't crash the menu
     for k in ("new_med_name", "edit_med_id"):
         context.user_data.pop(k, None)
 

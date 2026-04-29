@@ -143,6 +143,57 @@ async def bills_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=bills_list_kb(bills),
         )
 
+    elif action == "setamt":
+        # bills:setamt:{val} — amount preset selected during add flow
+        val_str = parts[2] if len(parts) > 2 else "0"
+        try:
+            amount = float(val_str)
+        except ValueError:
+            amount = None
+        name = context.user_data.get("new_bill_name", "Bill")
+        context.user_data["new_bill_amount"] = amount
+        context.user_data["new_bill_name_final"] = name
+        context.user_data.pop("new_bill_name", None)
+        context.user_data["awaiting"] = None
+        # Persist to DB so it survives restarts
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_bill_name', ?)",
+                (chat_id, name)
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_bill_amount', ?)",
+                (chat_id, str(amount) if amount is not None else "")
+            )
+        from keyboards import due_day_picker_kb
+        await query.edit_message_text(
+            f"${val_str} set. Now pick the due day of the month for {name}:",
+            reply_markup=due_day_picker_kb(),
+        )
+
+    elif action == "skipmount":
+        # Skip amount during add flow — go straight to due-day picker
+        name = context.user_data.get("new_bill_name", "Bill")
+        context.user_data["new_bill_amount"] = None
+        context.user_data["new_bill_name_final"] = name
+        context.user_data.pop("new_bill_name", None)
+        context.user_data["awaiting"] = None
+        # Persist to DB
+        with db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_bill_name', ?)",
+                (chat_id, name)
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (chat_id, key, value) VALUES (?, 'pending_bill_amount', ?)",
+                (chat_id, "")
+            )
+        from keyboards import due_day_picker_kb
+        await query.edit_message_text(
+            f"Skipping amount. Pick the due day of the month for {name}:",
+            reply_markup=due_day_picker_kb(),
+        )
+
     elif action == "skipdueday":
         # No due day — save without it
         name = context.user_data.pop("new_bill_name_final", None)
@@ -269,7 +320,26 @@ async def handle_bill_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if awaiting == AWAITING_BILL_NAME:
         context.user_data["new_bill_name"] = text
         context.user_data["awaiting"] = AWAITING_BILL_AMOUNT
-        await update.message.reply_text(f"How much is {text}? (Just the number, or 'skip')")
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        amount_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("$500", callback_data="bills:setamt:500"),
+                InlineKeyboardButton("$300", callback_data="bills:setamt:300"),
+                InlineKeyboardButton("$200", callback_data="bills:setamt:200"),
+                InlineKeyboardButton("$150", callback_data="bills:setamt:150"),
+            ],
+            [
+                InlineKeyboardButton("$100", callback_data="bills:setamt:100"),
+                InlineKeyboardButton("$75", callback_data="bills:setamt:75"),
+                InlineKeyboardButton("$50", callback_data="bills:setamt:50"),
+            ],
+            [InlineKeyboardButton("⏭ Skip — add later", callback_data="bills:skipmount")],
+            [InlineKeyboardButton("✕ Cancel", callback_data="menu:main")],
+        ])
+        await update.message.reply_text(
+            f"How much is {text}? Tap a preset or type a number:",
+            reply_markup=amount_kb,
+        )
         return True
 
     if awaiting == AWAITING_BILL_AMOUNT:

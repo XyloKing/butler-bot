@@ -170,6 +170,39 @@ async def meds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.execute("DELETE FROM medications WHERE id = ? AND chat_id = ?", (item_id, chat_id))
         await query.edit_message_text(random.choice(["Gone.", "Removed.", "Deleted."]), reply_markup=back_to_menu_kb())
 
+    elif action == "setdosage":
+        # meds:setdosage:{med_id}:{val} — dosage preset selected during add flow
+        med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        val = parts[3] if len(parts) > 3 else None
+        if not med_id:
+            return
+        context.user_data["awaiting"] = None
+        context.user_data.pop("pending_med_id", None)
+        if val:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE medications SET dosage = ? WHERE id = ? AND chat_id = ?",
+                    (val, med_id, chat_id),
+                )
+        from keyboards import med_schedule_kb
+        await query.edit_message_text(
+            f"Dosage set to {val}. When do you take it?",
+            reply_markup=med_schedule_kb(med_id),
+        )
+
+    elif action == "skipdosage":
+        # meds:skipdosage:{med_id} — skip dosage, go to schedule picker
+        med_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        if not med_id:
+            return
+        context.user_data["awaiting"] = None
+        context.user_data.pop("pending_med_id", None)
+        from keyboards import med_schedule_kb
+        await query.edit_message_text(
+            "No dosage set. When do you take it?",
+            reply_markup=med_schedule_kb(med_id),
+        )
+
 
 async def _show_meds_list(query, chat_id, send_new=False):
     meds = _get_meds(chat_id)
@@ -233,28 +266,62 @@ async def handle_med_text(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     text = update.message.text.strip()
 
     if awaiting == AWAITING_MED_NAME:
-        context.user_data["new_med_name"] = text
+        # Insert med into DB immediately to get med_id
+        with db() as conn:
+            cursor = conn.execute(
+                "INSERT INTO medications (chat_id, name) VALUES (?, ?)",
+                (chat_id, text),
+            )
+            med_id = cursor.lastrowid
         context.user_data["awaiting"] = AWAITING_MED_DOSAGE
-        await update.message.reply_text(f"Dosage for {text}? (e.g. '20mg', or 'skip')")
+        context.user_data["pending_med_id"] = med_id
+        dosage_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("5mg", callback_data=f"meds:setdosage:{med_id}:5mg"),
+                InlineKeyboardButton("10mg", callback_data=f"meds:setdosage:{med_id}:10mg"),
+                InlineKeyboardButton("20mg", callback_data=f"meds:setdosage:{med_id}:20mg"),
+                InlineKeyboardButton("25mg", callback_data=f"meds:setdosage:{med_id}:25mg"),
+            ],
+            [
+                InlineKeyboardButton("50mg", callback_data=f"meds:setdosage:{med_id}:50mg"),
+                InlineKeyboardButton("100mg", callback_data=f"meds:setdosage:{med_id}:100mg"),
+                InlineKeyboardButton("200mg", callback_data=f"meds:setdosage:{med_id}:200mg"),
+            ],
+            [InlineKeyboardButton("⏭ Skip dosage", callback_data=f"meds:skipdosage:{med_id}")],
+            [InlineKeyboardButton("✕ Cancel", callback_data="menu:main")],
+        ])
+        await update.message.reply_text(
+            f"Dosage for {text}? Tap a preset or type it (e.g. '20mg'):",
+            reply_markup=dosage_kb,
+        )
         return True
 
     if awaiting == AWAITING_MED_DOSAGE:
-        name = context.user_data.pop("new_med_name", "Med")
         dosage = text if text.lower() != "skip" else None
+        med_id = context.user_data.pop("pending_med_id", None)
         context.user_data["awaiting"] = None
 
-        # Save name+dosage to DB now, then ask schedule via buttons
-        with db() as conn:
-            cursor = conn.execute(
-                "INSERT INTO medications (chat_id, name, dosage) VALUES (?, ?, ?)",
-                (chat_id, name, dosage),
-            )
-            med_id = cursor.lastrowid
+        # Med is already in DB (inserted when name was typed) — just update dosage
+        if med_id and dosage:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE medications SET dosage = ? WHERE id = ? AND chat_id = ?",
+                    (dosage, med_id, chat_id),
+                )
+        elif not med_id:
+            # Fallback: insert fresh (should not normally happen)
+            name = context.user_data.pop("new_med_name", "Med")
+            with db() as conn:
+                cursor = conn.execute(
+                    "INSERT INTO medications (chat_id, name, dosage) VALUES (?, ?, ?)",
+                    (chat_id, name, dosage),
+                )
+                med_id = cursor.lastrowid
 
         from keyboards import med_schedule_kb
         dosage_str = f" {dosage}" if dosage else ""
         await update.message.reply_text(
-            f"Added {name}{dosage_str}. When do you take it?",
+            f"Got it{dosage_str}. When do you take it?",
             reply_markup=med_schedule_kb(med_id),
         )
         return True

@@ -930,6 +930,39 @@ def time_picker_kb() -> InlineKeyboardMarkup:
         rows.append(row)
     rows.append([InlineKeyboardButton("⏭ No Time / All Day", callback_data="appts:skip_time")])
     rows.append([InlineKeyboardButton("✏️ Type Custom Time", callback_data="appts:type_time")])
+    rows.append([InlineKeyboardButton("✕ Cancel", callback_data="menu:main")])
+    return InlineKeyboardMarkup(rows)
+
+
+def appt_time_kb() -> InlineKeyboardMarkup:
+    """Button grid of common times for healthcare / night-shift workers."""
+    # Evening times (common shift-start times)
+    pm_times = [
+        ("6pm", "18:00"), ("7pm", "19:00"), ("8pm", "20:00"), ("9pm", "21:00"), ("10pm", "22:00"),
+    ]
+    # Morning/midday times (post-shift appointments)
+    am_times = [
+        ("6am", "06:00"), ("7am", "07:00"), ("8am", "08:00"),
+        ("9am", "09:00"), ("10am", "10:00"), ("11am", "11:00"), ("Noon", "12:00"),
+    ]
+    rows = []
+    # PM row
+    rows.append([
+        InlineKeyboardButton(label, callback_data=f"appts:settime:{val}")
+        for label, val in pm_times
+    ])
+    # AM rows (4 then 3)
+    rows.append([
+        InlineKeyboardButton(label, callback_data=f"appts:settime:{val}")
+        for label, val in am_times[:4]
+    ])
+    rows.append([
+        InlineKeyboardButton(label, callback_data=f"appts:settime:{val}")
+        for label, val in am_times[4:]
+    ])
+    rows.append([InlineKeyboardButton("⏭ Skip time", callback_data="appts:skip_time")])
+    rows.append([InlineKeyboardButton("✏️ Type custom time", callback_data="appts:type_time")])
+    rows.append([InlineKeyboardButton("✕ Cancel", callback_data="menu:main")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -987,6 +1020,7 @@ def due_day_picker_kb() -> InlineKeyboardMarkup:
     if row:
         rows.append(row)
     rows.append([InlineKeyboardButton("⏭ Skip", callback_data="bills:skipdueday")])
+    rows.append([InlineKeyboardButton("✕ Cancel", callback_data="menu:main")])
     return InlineKeyboardMarkup(rows)
 
 
